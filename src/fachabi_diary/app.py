@@ -31,7 +31,7 @@ def run() -> int:
         profile = dialog.profile()
         profiles.save(profile)
     window = MainWindow(profile, profiles, reports, Path.cwd() / "assets" / "formblatt9.pdf")
-    window.resize(1180, 760)
+    window.resize(1420, 900)
     window.show()
     return app.exec()
 
@@ -41,39 +41,181 @@ QWidget {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   font-size: 14px;
   color: #1d1d1f;
-  background: #f5f5f7;
+  background: #f6f7fb;
 }
-QLineEdit, QTextEdit, QDateEdit, QDoubleSpinBox, QSpinBox, QTableWidget {
+QLabel {
+  background: transparent;
+}
+QLineEdit, QTextEdit, QDateEdit, QDoubleSpinBox, QSpinBox {
   background: white;
-  border: 1px solid #d2d2d7;
+  border: 1px solid #d9dde7;
   border-radius: 8px;
   padding: 6px;
   selection-background-color: #0071e3;
 }
+QTextEdit {
+  padding: 8px;
+}
 QPushButton {
   background: #ffffff;
-  border: 1px solid #d2d2d7;
+  border: 1px solid #d9dde7;
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 9px 14px;
 }
 QPushButton:hover { background: #f0f0f2; }
-QPushButton#primaryButton {
-  background: #0071e3;
-  color: white;
-  border-color: #0071e3;
+QPushButton:pressed {
+  background: #e6e9ef;
+  padding-top: 10px;
+  padding-bottom: 8px;
 }
-QListWidget {
+QPushButton#primaryButton {
+  background: #0a66ff;
+  color: white;
+  border-color: #0a66ff;
+  font-weight: 600;
+}
+QPushButton#primaryButton:pressed {
+  background: #0057d8;
+}
+QPushButton:disabled {
+  color: #8a8f98;
+  background: #f8f9fb;
+}
+QPushButton#iconButton {
+  padding: 7px 10px;
+  min-width: 88px;
+}
+QListWidget#weekList {
   background: #ffffff;
-  border: 1px solid #d2d2d7;
+  border: 1px solid #dde2ec;
   border-radius: 10px;
   padding: 6px;
 }
-QGroupBox {
-  border: 1px solid #d2d2d7;
+QListWidget#weekList::item {
+  min-height: 76px;
   border-radius: 10px;
-  margin-top: 12px;
-  padding: 12px;
-  background: #fbfbfd;
+  padding: 11px 12px;
+  margin: 4px 0;
 }
-QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }
+QListWidget#weekList::item:selected {
+  background: #edf4ff;
+  color: #111827;
+  border-left: 4px solid #0a66ff;
+}
+QListWidget#weekList QScrollBar:vertical,
+QScrollArea QScrollBar:vertical {
+  width: 0;
+}
+QFrame#sidebar {
+  background: #f8f9fc;
+  border-right: 1px solid #dde2ec;
+}
+QFrame#toolbar {
+  background: #ffffff;
+  border-bottom: 1px solid #dde2ec;
+}
+QFrame#actionBar {
+  background: #ffffff;
+  border-top: 1px solid #dde2ec;
+}
+QFrame#summaryCard, QFrame#panel, QFrame#bluePanel {
+  background: #ffffff;
+  border: 1px solid #dde2ec;
+  border-radius: 10px;
+}
+QFrame#summaryCard {
+  min-height: 112px;
+  max-height: 126px;
+}
+QFrame#bluePanel {
+  background: #f4f8ff;
+  border-color: #bcd4ff;
+}
+QFrame#dayRow {
+  background: #ffffff;
+  border-bottom: 1px solid #e7eaf0;
+}
+QWidget#dayDateCell {
+  background: transparent;
+}
+QLabel#brandTitle {
+  color: #0a4dbf;
+  font-size: 21px;
+  font-weight: 750;
+}
+QLabel#logoBox {
+  background: #0a66ff;
+  color: white;
+  border-radius: 10px;
+  padding: 12px 9px;
+  font-size: 17px;
+  font-weight: 800;
+}
+QLabel#sectionLabel {
+  color: #4b5563;
+  font-weight: 650;
+}
+QLabel#mutedLabel {
+  color: #667085;
+}
+QLabel#cardMarker {
+  color: #0a66ff;
+  background: #f4f8ff;
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+QLabel#cardValue {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+QLabel#dayName {
+  font-size: 16px;
+  font-weight: 700;
+}
+QLabel#hoursValue {
+  font-size: 18px;
+  font-weight: 650;
+  color: #111827;
+  min-width: 64px;
+}
+QLabel#activityText {
+  font-size: 15px;
+  color: #253044;
+}
+QLabel#panelTitle {
+  font-size: 16px;
+  font-weight: 750;
+}
+QLabel#dialogTitle {
+  font-size: 24px;
+  font-weight: 760;
+}
+QLabel#statusPill {
+  background: #eaf2ff;
+  color: #0a66ff;
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-weight: 650;
+}
+QLabel#totalLabel {
+  font-size: 18px;
+  font-weight: 750;
+}
+QLabel#companyFooter {
+  background: #ffffff;
+  border: 1px solid #dde2ec;
+  border-radius: 10px;
+  padding: 12px;
+  color: #344054;
+}
+QLabel#pdfPreview {
+  background: #f8fafc;
+  border: 1px dashed #c8d1df;
+  border-radius: 8px;
+  color: #667085;
+  min-height: 220px;
+}
 """

@@ -27,12 +27,11 @@ class PdfExporter:
         if not self.template_path.exists():
             raise PdfExportError(
                 f"PDF-Vorlage fehlt: {self.template_path}. Bitte Formblatt 9 als assets/formblatt9.pdf ablegen."
-            )
+        )
         writer = PdfWriter()
-        template_reader = PdfReader(str(self.template_path))
         for report in reports:
-            template_page = template_reader.pages[0]
-            page = template_page.clone(writer)
+            template_reader = PdfReader(str(self.template_path))
+            page = template_reader.pages[0]
             overlay_reader = PdfReader(self._overlay(profile, report))
             page.merge_page(overlay_reader.pages[0])
             writer.add_page(page)
@@ -43,16 +42,14 @@ class PdfExporter:
     def _overlay(self, profile: Profile, report: WeeklyReport) -> BytesIO:
         buffer = BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
-        c.setFont("Helvetica", 10)
-        self._draw(c, profile.surname, 128, 765)
-        self._draw(c, profile.first_name, 360, 765)
-        self._draw(c, str(report.report_number), 495, 721)
-        self._draw(c, format_date(report.week_start), 200, 700)
-        self._draw(c, format_date(report.week_end), 360, 700)
-        self._draw(c, f"{profile.company_name}, {profile.company_address}", 128, 742, 82)
-        self._draw(c, profile.internship_field, 128, 724, 70)
-        self._draw_multiline(c, format_activity_bullets(report.entries, report.general_notes), 72, 635, 92, 15)
-        self._draw(c, f"{report.location}, {format_date(report.report_date)}", 98, 158, 45)
+        c.setFont("Helvetica", 9)
+        self._draw(c, profile.surname, 90, 691, 28)
+        self._draw(c, profile.first_name, 312, 691, 28)
+        self._draw(c, str(report.report_number), 90, 620)
+        self._draw(c, format_date(report.week_start), 184, 620)
+        self._draw(c, format_date(report.week_end), 359, 620)
+        self._draw_multiline(c, format_activity_bullets(report.entries, report.general_notes), 90, 589, 92, 27)
+        self._draw(c, f"{report.location}, {format_date(report.report_date)}", 90, 194, 42)
         c.save()
         buffer.seek(0)
         return buffer
@@ -64,12 +61,12 @@ class PdfExporter:
         c.drawString(x, y, value)
 
     def _draw_multiline(self, c: canvas.Canvas, text: str, x: int, y: int, width: int, max_lines: int) -> None:
-        c.setFont("Helvetica", 9)
+        c.setFont("Helvetica", 8.5)
         line_no = 0
         for raw_line in text.splitlines():
             for line in wrap(raw_line, width=width) or [""]:
                 if line_no >= max_lines:
-                    c.drawString(x, y - line_no * 13, "- Weitere Einträge siehe App.")
+                    c.drawString(x, y - line_no * 11, "- Weitere Einträge siehe App.")
                     return
-                c.drawString(x, y - line_no * 13, line)
+                c.drawString(x, y - line_no * 11, line)
                 line_no += 1
