@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import textwrap
 from datetime import date, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QDate, QPropertyAnimation, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QCursor
+from PySide6.QtCore import QEasingCurve, QDate, QPropertyAnimation, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QCursor
 from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
@@ -12,7 +13,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGraphicsOpacityEffect,
-    QGridLayout,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,19 +22,49 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
+    QStackedWidget,
     QDoubleSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from .design import RIGHT_PANEL_WIDTH, SIDEBAR_WIDTH, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH
+from .design import SIDEBAR_WIDTH, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH
 from .icons import blue_icon, lucide_icon
 from .models import DailyEntry, Profile, STATUSES, WeeklyReport
 from .repositories import ProfileRepository, WeeklyReportRepository
 from .services.pdf_exporter import PdfExportError, PdfExporter
-from .services.report_formatter import format_date, has_exportable_activity
+from .services.report_formatter import format_date, format_hours, has_exportable_activity
+from .services.text_assistant import LocalTextAssistant
+
+
+def _monday_for(value: date) -> date:
+    return value - timedelta(days=value.weekday())
+
+
+def _week_start_for_report(contract_start: str, report_number: int) -> date:
+    first_week_start = _monday_for(date.fromisoformat(contract_start))
+    return first_week_start + timedelta(days=(report_number - 1) * 7)
+
+
+def _activity_preview(text: str, line_width: int = 72) -> str:
+    text = text.strip()
+    if not text:
+        return "Noch keine Tätigkeit eingetragen"
+    paragraphs = [" ".join(part.split()) for part in text.splitlines() if part.strip()]
+    lines: list[str] = []
+    for paragraph in paragraphs:
+        lines.extend(
+            textwrap.wrap(
+                paragraph,
+                width=line_width,
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+        )
+    return "\n".join(lines)
 
 
 class ProfileDialog(QDialog):
@@ -226,21 +257,64 @@ class SummaryCard(QFrame):
     def __init__(self, title: str, value: str = "", icon_name: str = "file-text") -> None:
         super().__init__()
         self.setObjectName("summaryCard")
+        self.setMinimumSize(160, 112)
+        self.setMaximumHeight(112)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(7)
+        layout.setContentsMargins(16, 14, 16, 13)
+        layout.setSpacing(10)
+        header = QHBoxLayout()
+        header.setSpacing(9)
         marker = QLabel()
         marker.setPixmap(blue_icon(icon_name, 19).pixmap(19, 19))
-        marker.setObjectName("cardIcon")
+        marker.setObjectName("cardIconBox")
+        marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        marker.setFixedSize(30, 30)
         label = QLabel(title)
-        label.setObjectName("mutedLabel")
+        label.setObjectName("cardTitle")
+        label.setWordWrap(True)
+        header.addWidget(marker)
+        header.addWidget(label, 1)
         self.value = QLabel(value)
         self.value.setObjectName("cardValue")
         self.value.setWordWrap(True)
-        layout.addWidget(marker)
+        self.value.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        layout.addLayout(header)
         layout.addStretch()
-        layout.addWidget(label)
         layout.addWidget(self.value)
+
+
+class HoverLiftButton(QPushButton):
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setColor(QColor(10, 102, 255, 70))
+        self._shadow.setBlurRadius(0)
+        self._shadow.setOffset(0, 0)
+        self.setGraphicsEffect(self._shadow)
+        self._blur_animation = QPropertyAnimation(self._shadow, b"blurRadius", self)
+        self._offset_animation = QPropertyAnimation(self._shadow, b"yOffset", self)
+        for animation in (self._blur_animation, self._offset_animation):
+            animation.setDuration(140)
+            animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def enterEvent(self, event) -> None:
+        self._animate_shadow(18, 4)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._animate_shadow(0, 0)
+        super().leaveEvent(event)
+
+    def _animate_shadow(self, blur: float, y_offset: float) -> None:
+        self._blur_animation.stop()
+        self._offset_animation.stop()
+        self._blur_animation.setStartValue(self._shadow.blurRadius())
+        self._blur_animation.setEndValue(blur)
+        self._offset_animation.setStartValue(self._shadow.yOffset())
+        self._offset_animation.setEndValue(y_offset)
+        self._blur_animation.start()
+        self._offset_animation.start()
 
 
 class StatusChip(QLabel):
@@ -308,7 +382,7 @@ class DayEntryDialog(QDialog):
         self.hours.setRange(0, 24)
         self.hours.setDecimals(2)
         self.hours.setSingleStep(0.5)
-        self.hours.setSuffix(" h")
+        self.hours.setSuffix(" Std.")
         self.hours.setValue(entry.hours)
         self.activity = QTextEdit(entry.activity_text)
         self.activity.setMinimumHeight(150)
@@ -337,13 +411,18 @@ class DayEntryDialog(QDialog):
 
 
 class DayRow(QFrame):
-    def __init__(self) -> None:
+    selected = Signal(int)
+
+    def __init__(self, index: int = 0) -> None:
         super().__init__()
         self.setObjectName("dayRow")
+        self.setMinimumHeight(80)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.index = index
         self._entry = DailyEntry(date.today().isoformat())
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(18, 13, 18, 13)
-        layout.setSpacing(16)
+        layout.setContentsMargins(22, 12, 16, 12)
+        layout.setSpacing(18)
         self.day_label = QLabel("Montag")
         self.day_label.setObjectName("dayName")
         self.date_label = QLabel("01.01.2026")
@@ -354,14 +433,18 @@ class DayRow(QFrame):
         date_box.addWidget(self.date_label)
         date_wrap = QWidget()
         date_wrap.setObjectName("dayDateCell")
-        date_wrap.setFixedWidth(118)
+        date_wrap.setFixedWidth(128)
         date_wrap.setLayout(date_box)
-        self.hours_label = QLabel("0 h")
+        self.hours_label = QLabel("0 Std.")
         self.hours_label.setObjectName("hoursValue")
-        self.hours_label.setFixedWidth(76)
+        self.hours_label.setFixedWidth(92)
         self.activity_label = QLabel("Noch keine Tätigkeit eingetragen")
         self.activity_label.setObjectName("activityText")
         self.activity_label.setWordWrap(True)
+        self.activity_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.activity_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.activity_label.setMinimumWidth(0)
+        self.activity_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.edit_button = QPushButton()
         self.edit_button.setObjectName("iconButton")
         self.edit_button.setIcon(lucide_icon("pencil"))
@@ -373,6 +456,11 @@ class DayRow(QFrame):
         layout.addWidget(self.activity_label, 1)
         layout.addWidget(self.edit_button)
 
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.selected.emit(self.index)
+        super().mousePressEvent(event)
+
     def set_entry(self, entry: DailyEntry) -> None:
         self._entry = entry
         self.refresh()
@@ -381,11 +469,13 @@ class DayRow(QFrame):
         return self._entry
 
     def edit(self) -> None:
+        window = self.window()
+        if hasattr(window, "select_day_row"):
+            window.select_day_row(self.index)
         dialog = DayEntryDialog(self._entry, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._entry = dialog.entry()
             self.refresh()
-            window = self.window()
             if hasattr(window, "update_summary"):
                 window.update_summary()
             if hasattr(window, "_feedback"):
@@ -396,12 +486,17 @@ class DayRow(QFrame):
         names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
         self.day_label.setText(names[day.dayOfWeek() - 1])
         self.date_label.setText(day.toString("dd.MM.yyyy"))
-        self.hours_label.setText(f"{self._entry.hours:g} h")
-        text = self._entry.activity_text.strip() or "Noch keine Tätigkeit eingetragen"
-        self.activity_label.setText(text)
+        self.hours_label.setText(f"{format_hours(self._entry.hours)} Std.")
+        self.activity_label.setText(_activity_preview(self._entry.activity_text))
+        self.updateGeometry()
 
     def _update_day_label(self) -> None:
         self.refresh()
+
+    def set_active(self, active: bool) -> None:
+        self.setProperty("active", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
 
 class MainWindow(QMainWindow):
@@ -420,8 +515,10 @@ class MainWindow(QMainWindow):
         self.reports = reports
         self.template_path = template_path
         self.exporter = PdfExporter(template_path)
+        self.text_assistant = LocalTextAssistant()
         self.current_report: WeeklyReport | None = None
         self.day_rows: list[DayRow] = []
+        self.selected_day_index = 0
         self.toast = QLabel(self)
         self.toast.setObjectName("toast")
         self.toast_opacity = QGraphicsOpacityEffect(self.toast)
@@ -431,6 +528,7 @@ class MainWindow(QMainWindow):
         self.toast_hide_connected = False
         self.toast.hide()
         self._build_ui()
+        self._build_ai_overlay()
         self.refresh_list()
 
     def _build_ui(self) -> None:
@@ -515,11 +613,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_toolbar())
         body = QHBoxLayout()
         body.setContentsMargins(22, 22, 22, 18)
-        body.setSpacing(22)
-        body.addWidget(self._build_editor(), 1)
-        body.addWidget(self._build_right_panel())
+        body.setSpacing(0)
+        self.editor_stack = QStackedWidget()
+        self.empty_state = self._build_empty_state()
+        self.editor_view = self._build_editor()
+        self.editor_stack.addWidget(self.empty_state)
+        self.editor_stack.addWidget(self.editor_view)
+        body.addWidget(self.editor_stack, 1)
         layout.addLayout(body, 1)
-        layout.addWidget(self._build_action_bar())
+        self.action_bar = self._build_action_bar()
+        layout.addWidget(self.action_bar)
         return content
 
     def _build_toolbar(self) -> QWidget:
@@ -529,10 +632,12 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(22, 16, 22, 16)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Suchen...")
-        self.search.setFixedWidth(320)
+        self.search.setMinimumWidth(260)
+        self.search.setMaximumWidth(620)
+        self.search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.search.addAction(lucide_icon("search"), QLineEdit.ActionPosition.LeadingPosition)
         self.search.textChanged.connect(self.refresh_list)
-        new_button = QPushButton("Neue Woche")
+        new_button = HoverLiftButton("Neue Woche")
         new_button.setObjectName("primaryButton")
         new_button.setIcon(lucide_icon("plus", "#FFFFFF"))
         new_button.clicked.connect(self.new_week)
@@ -542,12 +647,36 @@ class MainWindow(QMainWindow):
         settings = QPushButton("Einstellungen")
         settings.setIcon(lucide_icon("settings"))
         settings.clicked.connect(self.edit_profile)
-        layout.addWidget(self.search)
+        layout.addWidget(self.search, 1)
         layout.addStretch()
         layout.addWidget(new_button)
         layout.addWidget(export_all)
         layout.addWidget(settings)
         return toolbar
+
+    def _build_empty_state(self) -> QWidget:
+        wrapper = QWidget()
+        wrapper.setObjectName("emptyState")
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addStretch()
+        icon = QLabel()
+        icon.setObjectName("emptyIcon")
+        icon.setPixmap(blue_icon("file-text", 36).pixmap(36, 36))
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setFixedSize(74, 74)
+        title = QLabel("Erstelle eine Woche")
+        title.setObjectName("emptyTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        text = QLabel("Noch kein Wochenbericht vorhanden.")
+        text.setObjectName("emptyText")
+        text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(text)
+        layout.addStretch()
+        return wrapper
 
     def _build_editor(self) -> QWidget:
         scroll = QScrollArea()
@@ -563,17 +692,23 @@ class MainWindow(QMainWindow):
         cards.setSpacing(12)
         self.number_card = SummaryCard("Bericht Nr.", "01", "file-text")
         self.period_card = SummaryCard("Zeitraum", "", "calendar")
-        self.company_card = SummaryCard("Praxisstelle", self.profile.company_name, "building")
-        self.field_card = SummaryCard("Fachrichtung", self.profile.internship_field, "code")
         self.hours_card = SummaryCard("Gesamtstunden", "0", "clock")
-        for card, stretch in (
-            (self.number_card, 1),
-            (self.period_card, 2),
-            (self.company_card, 2),
-            (self.field_card, 3),
-            (self.hours_card, 1),
-        ):
-            cards.addWidget(card, stretch)
+        self.period_card.value.setWordWrap(False)
+        self.number_card.setFixedWidth(160)
+        self.period_card.setFixedWidth(320)
+        self.hours_card.setFixedWidth(180)
+        edit_details = QPushButton("Berichtsdaten")
+        edit_details.setObjectName("ghostButton")
+        edit_details.setIcon(lucide_icon("pencil"))
+        edit_details.setToolTip("Berichtsdaten bearbeiten")
+        edit_details.setFixedHeight(42)
+        edit_details.setFixedWidth(160)
+        edit_details.clicked.connect(self.edit_report_details)
+        cards.addWidget(self.number_card)
+        cards.addWidget(self.period_card)
+        cards.addWidget(self.hours_card)
+        cards.addStretch()
+        cards.addWidget(edit_details, 0, Qt.AlignmentFlag.AlignBottom)
         layout.addLayout(cards)
 
         self.number = QSpinBox()
@@ -590,14 +725,6 @@ class MainWindow(QMainWindow):
         self.location.textChanged.connect(self.update_summary)
         self.status = QLabel("Entwurf")
         self.status.setObjectName("statusPill")
-        details_row = QHBoxLayout()
-        details_row.addStretch()
-        edit_details = QPushButton("Berichtsdaten bearbeiten")
-        edit_details.setObjectName("ghostButton")
-        edit_details.setIcon(lucide_icon("pencil"))
-        edit_details.clicked.connect(self.edit_report_details)
-        details_row.addWidget(edit_details)
-        layout.addLayout(details_row)
 
         self.days_panel = QFrame()
         self.days_panel.setObjectName("panel")
@@ -621,92 +748,107 @@ class MainWindow(QMainWindow):
         scroll.setWidget(inner)
         return scroll
 
-    def _build_right_panel(self) -> QWidget:
-        panel = QWidget()
-        panel.setFixedWidth(RIGHT_PANEL_WIDTH)
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(18)
-        ai = QFrame()
-        ai.setObjectName("bluePanel")
-        ai_layout = QVBoxLayout(ai)
-        ai_layout.setContentsMargins(18, 18, 18, 18)
-        ai_header = QHBoxLayout()
-        ai_icon = QLabel()
-        ai_icon.setPixmap(blue_icon("sparkles", 18).pixmap(18, 18))
+    def _build_ai_overlay(self) -> None:
+        self.ai_button = QPushButton(self)
+        self.ai_button.setObjectName("aiFloatingButton")
+        self.ai_button.setIcon(lucide_icon("sparkles", "#FFFFFF", 22))
+        self.ai_button.setIconSize(QSize(22, 22))
+        self.ai_button.setToolTip("KI-Hilfe")
+        self.ai_button.setFixedSize(54, 54)
+        self.ai_button.clicked.connect(self.toggle_ai_bubble)
+
+        self.ai_bubble = QFrame(self)
+        self.ai_bubble.setObjectName("aiBubble")
+        self.ai_bubble.setFixedWidth(292)
+        bubble_layout = QVBoxLayout(self.ai_bubble)
+        bubble_layout.setContentsMargins(18, 18, 18, 18)
+        bubble_layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        icon = QLabel()
+        icon.setPixmap(blue_icon("sparkles", 18).pixmap(18, 18))
         title = QLabel("KI-Hilfe")
         title.setObjectName("panelTitle")
-        ai_header.addWidget(ai_icon)
-        ai_header.addWidget(title)
-        ai_header.addStretch()
+        header.addWidget(icon)
+        header.addWidget(title)
+        header.addStretch()
+        bubble_layout.addLayout(header)
+
         text = QLabel("Optionale KI-Unterstützung.")
         text.setObjectName("mutedLabel")
         text.setWordWrap(True)
-        ai_layout.addLayout(ai_header)
-        ai_layout.addWidget(text)
-        for label, icon_name in (
-            ("Tagesnotiz verbessern", "pencil"),
-            ("Woche zusammenfassen", "list"),
-            ("Formeller Text", "file-text"),
+        bubble_layout.addWidget(text)
+
+        self.ai_action_buttons: list[QPushButton] = []
+        for label, icon_name, callback in (
+            ("Tagesnotiz verbessern", "pencil", self.improve_selected_day_note),
+            ("Woche zusammenfassen", "list", self.summarize_week_note),
+            ("Formeller Text", "file-text", self.formalize_week_text),
         ):
             button = QPushButton(label)
+            button.setObjectName("aiActionButton")
             button.setIcon(blue_icon(icon_name))
-            button.setEnabled(False)
-            ai_layout.addWidget(button)
-        layout.addWidget(ai)
-        preview = QFrame()
-        preview.setObjectName("panel")
-        preview_layout = QVBoxLayout(preview)
-        preview_layout.setContentsMargins(18, 18, 18, 18)
-        preview_title = QLabel("Formblatt 9")
-        preview_title.setObjectName("panelTitle")
-        self.preview_info = QLabel("Noch keine Vorschau verfügbar\nErstelle zuerst einen PDF-Bericht.")
-        self.preview_info.setObjectName("pdfPreview")
-        self.preview_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_info.setWordWrap(True)
-        self.preview_icon = QLabel()
-        self.preview_icon.setPixmap(lucide_icon("file-pdf", "#EF4444", 42).pixmap(42, 42))
-        self.preview_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        preview_layout.addWidget(preview_title)
-        preview_layout.addWidget(self.preview_icon)
-        preview_layout.addWidget(self.preview_info, 1)
-        layout.addWidget(preview, 1)
-        return panel
+            button.clicked.connect(callback)
+            bubble_layout.addWidget(button)
+            self.ai_action_buttons.append(button)
+
+        self.ai_bubble_opacity = QGraphicsOpacityEffect(self.ai_bubble)
+        self.ai_bubble.setGraphicsEffect(self.ai_bubble_opacity)
+        self.ai_bubble_animation = QPropertyAnimation(self.ai_bubble_opacity, b"opacity", self)
+        self.ai_bubble_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.ai_bubble_hide_connected = False
+        self.ai_bubble.hide()
+        self._position_overlays()
 
     def _build_action_bar(self) -> QWidget:
         bar = QFrame()
         bar.setObjectName("actionBar")
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(22, 16, 22, 16)
+        layout.setContentsMargins(22, 14, 22, 14)
+        layout.setSpacing(10)
         self.total = QLabel("0 Std.")
         self.total.setObjectName("totalLabel")
-        save = QPushButton("Speichern")
+        self.total.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        save = HoverLiftButton("Speichern")
         save.setObjectName("primaryButton")
         save.setIcon(lucide_icon("save", "#FFFFFF"))
         export = QPushButton("PDF erstellen")
         export.setIcon(lucide_icon("file-pdf"))
-        printed = QPushButton("Als gedruckt markieren")
-        printed.setIcon(lucide_icon("printer"))
-        signed = QPushButton("Als unterschrieben markieren")
-        signed.setIcon(lucide_icon("signature"))
-        more = QPushButton()
-        more.setObjectName("iconButton")
+        delete = QPushButton("Löschen")
+        delete.setObjectName("dangerButton")
+        delete.setIcon(lucide_icon("trash", "#D92D20"))
+        more = QPushButton("Weitere")
+        more.setObjectName("moreButton")
         more.setIcon(lucide_icon("more-horizontal"))
-        more.setFixedSize(42, 42)
+        for button, width in (
+            (save, 150),
+            (export, 150),
+            (delete, 128),
+            (more, 132),
+        ):
+            button.setFixedSize(width, 42)
+            button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.more_menu = QMenu(self)
-        delete_action = QAction("Bericht löschen", self)
-        delete_action.setIcon(lucide_icon("trash", "#EF4444"))
-        delete_action.triggered.connect(self.delete_current)
-        self.more_menu.addAction(delete_action)
+        printed_action = QAction("Gedruckt markieren", self)
+        printed_action.setIcon(lucide_icon("printer"))
+        printed_action.triggered.connect(lambda: self.mark_status("Gedruckt"))
+        signed_action = QAction("Unterschrieben markieren", self)
+        signed_action.setIcon(lucide_icon("signature"))
+        signed_action.triggered.connect(lambda: self.mark_status("Unterschrieben"))
+        weekend_action = QAction("Wochenende eintragen", self)
+        weekend_action.setIcon(lucide_icon("calendar"))
+        weekend_action.triggered.connect(self.fill_weekend_defaults)
+        self.more_menu.addAction(printed_action)
+        self.more_menu.addAction(signed_action)
+        self.more_menu.addAction(weekend_action)
         more.clicked.connect(lambda: self.more_menu.exec(more.mapToGlobal(more.rect().bottomRight())))
         save.clicked.connect(self.save_current)
         export.clicked.connect(self.export_current)
-        printed.clicked.connect(lambda: self.mark_status("Gedruckt"))
-        signed.clicked.connect(lambda: self.mark_status("Unterschrieben"))
+        delete.clicked.connect(self.delete_current)
         layout.addWidget(self.total)
         layout.addStretch()
-        for button in (save, export, printed, signed, more):
-            layout.addWidget(button)
+        for button in (save, export, delete, more):
+            layout.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
         return bar
 
     def refresh_list(self, selected_id: int | None = None) -> None:
@@ -714,6 +856,7 @@ class MainWindow(QMainWindow):
         if isinstance(selected_id, str):
             selected = self.current_report.id if self.current_report else None
         search = self.search.text().strip().lower() if hasattr(self, "search") else ""
+        reports = self.reports.list()
         while self.report_list_layout.count():
             item = self.report_list_layout.takeAt(0)
             widget = item.widget()
@@ -721,8 +864,14 @@ class MainWindow(QMainWindow):
                 widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
+        if not reports:
+            self.report_list_layout.addStretch()
+            self.current_report = None
+            self._show_empty_state()
+            return
+        self._show_editor_state()
         first_visible_id = None
-        for report in self.reports.list():
+        for report in reports:
             label = self._report_list_label(report)
             if search and search not in label.lower():
                 continue
@@ -737,6 +886,19 @@ class MainWindow(QMainWindow):
             self.load_report_by_id(selected)
         elif self.current_report is None and first_visible_id is not None:
             self.load_report_by_id(first_visible_id)
+
+    def _show_empty_state(self) -> None:
+        self.editor_stack.setCurrentWidget(self.empty_state)
+        self.action_bar.hide()
+        if hasattr(self, "ai_button"):
+            self.ai_bubble.hide()
+            self.ai_button.hide()
+
+    def _show_editor_state(self) -> None:
+        self.editor_stack.setCurrentWidget(self.editor_view)
+        self.action_bar.show()
+        if hasattr(self, "ai_button"):
+            self.ai_button.show()
 
     def _report_list_label(self, report: WeeklyReport) -> str:
         return f"Bericht Nr. {report.report_number}\n{format_date(report.week_start)} - {format_date(report.week_end)}\n{report.status}"
@@ -768,11 +930,14 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
         self.day_rows = []
         entries = report.entries[:7] or self._empty_week_entries(report.week_start)
-        for entry in entries[:7]:
-            row = DayRow()
+        for index, entry in enumerate(entries[:7]):
+            row = DayRow(index)
+            row.selected.connect(self.select_day_row)
             row.set_entry(entry)
             self.days_layout.addWidget(row)
             self.day_rows.append(row)
+        if self.day_rows:
+            self.select_day_row(min(self.selected_day_index, len(self.day_rows) - 1))
         self.days_layout.addStretch()
 
     def _empty_week_entries(self, week_start: str) -> list[DailyEntry]:
@@ -783,16 +948,101 @@ class MainWindow(QMainWindow):
         ]
 
     def new_week(self) -> None:
-        existing = self.reports.list()
-        if existing:
-            last_end = date.fromisoformat(existing[-1].week_end)
-            start = last_end + timedelta(days=1)
-        else:
-            start = date.fromisoformat(self.profile.contract_start)
-        report = WeeklyReport.new(self.reports.next_number(), start, self.profile.default_location)
+        report_number = self.reports.next_number()
+        start = _week_start_for_report(self.profile.contract_start, report_number)
+        report = WeeklyReport.new(report_number, start, self.profile.default_location)
         report_id = self.reports.save(report)
         self.refresh_list(report_id)
         self._confirm("Woche erstellt")
+
+    def select_day_row(self, index: int) -> None:
+        self.selected_day_index = max(0, min(index, len(self.day_rows) - 1)) if self.day_rows else 0
+        for row in self.day_rows:
+            row.set_active(row.index == self.selected_day_index)
+
+    def _ai_target_day_row(self) -> DayRow | None:
+        if not self.day_rows:
+            return None
+        selected = self.day_rows[self.selected_day_index]
+        if selected.entry().activity_text.strip() and selected.entry().activity_text.strip().casefold() != "wochenende":
+            return selected
+        for row in self.day_rows:
+            text = row.entry().activity_text.strip()
+            if text and text.casefold() != "wochenende":
+                return row
+        return None
+
+    def improve_selected_day_note(self) -> None:
+        if self.current_report is None:
+            return
+        row = self._ai_target_day_row()
+        if row is None:
+            self._feedback("Keine Tagesnotiz")
+            return
+        entry = row.entry()
+        improved = self.text_assistant.improve_activity(entry.activity_text)
+        if not improved:
+            self._feedback("Keine Tagesnotiz")
+            return
+        row.set_entry(
+            DailyEntry(
+                entry_date=entry.entry_date,
+                hours=entry.hours,
+                activity_text=improved,
+                id=entry.id,
+                weekly_report_id=entry.weekly_report_id,
+            )
+        )
+        self.select_day_row(row.index)
+        self.update_summary()
+        self._confirm("Tagesnotiz verbessert")
+
+    def summarize_week_note(self) -> None:
+        if self.current_report is None:
+            return
+        summary = self.text_assistant.summarize_week(self.read_report())
+        if not summary:
+            self._feedback("Keine Einträge")
+            return
+        self.notes.setPlainText(summary)
+        self._confirm("Wochennotiz erstellt")
+
+    def formalize_week_text(self) -> None:
+        if self.current_report is None:
+            return
+        formalized = self.text_assistant.formalize_report(self.read_report())
+        changed = False
+        for row, entry in zip(self.day_rows, formalized.entries):
+            if row.entry().activity_text != entry.activity_text:
+                changed = True
+            row.set_entry(entry)
+        if self.notes.toPlainText().strip() != formalized.general_notes.strip():
+            changed = True
+        self.notes.setPlainText(formalized.general_notes)
+        self.update_summary()
+        self._confirm("Text formeller" if changed else "Text geprüft")
+
+    def fill_weekend_defaults(self) -> None:
+        if self.current_report is None:
+            return
+        changed = False
+        for row in self.day_rows:
+            entry = row.entry()
+            weekday = date.fromisoformat(entry.entry_date).weekday()
+            if weekday < 5 or entry.activity_text.strip():
+                continue
+            row.set_entry(
+                DailyEntry(
+                    entry_date=entry.entry_date,
+                    hours=0,
+                    activity_text="Wochenende",
+                    id=entry.id,
+                    weekly_report_id=entry.weekly_report_id,
+                )
+            )
+            changed = True
+        self.update_summary()
+        self._confirm("Wochenende eingetragen" if changed else "Wochenende bereits gesetzt")
 
     def read_report(self) -> WeeklyReport:
         entries = [row.entry() for row in self.day_rows]
@@ -848,7 +1098,6 @@ class MainWindow(QMainWindow):
             return
         try:
             self.exporter.export_week(self.profile, report, Path(path))
-            self.preview_info.setText(f"Erstellt:\n{Path(path).name}")
             self._confirm("PDF erstellt")
         except PdfExportError as exc:
             self._feedback("PDF fehlgeschlagen")
@@ -862,7 +1111,6 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Alle Berichte speichern", "berichte.pdf", "PDF (*.pdf)")
         if path:
             self.exporter.export_many(self.profile, reports, Path(path))
-            self.preview_info.setText(f"Gesamtexport:\n{Path(path).name}")
             self._confirm("Export erstellt")
 
     def mark_status(self, status: str) -> None:
@@ -889,8 +1137,6 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.profile = dialog.profile()
             self.profiles.save(self.profile)
-            self.company_card.value.setText(self.profile.company_name)
-            self.field_card.value.setText(self.profile.internship_field)
             self.company_footer.setText(self.profile.company_name)
             self.refresh_list(self.current_report.id if self.current_report else None)
             self._confirm("Einstellungen gespeichert")
@@ -913,11 +1159,11 @@ class MainWindow(QMainWindow):
 
     def update_summary(self) -> None:
         total = sum(row.entry().hours for row in self.day_rows)
-        self.total.setText(f"{total:g} Std.")
-        self.hours_card.value.setText(f"{total:g}")
+        self.total.setText(f"{format_hours(total)} Std.")
+        self.hours_card.value.setText(f"{format_hours(total)} Std.")
         self.number_card.value.setText(f"{self.number.value():02d}")
         self.period_card.value.setText(
-            f"{self.week_start.date().toString('dd.MM.yyyy')} -\n{self.week_end.date().toString('dd.MM.yyyy')}"
+            f"{self.week_start.date().toString('dd.MM.yyyy')} - {self.week_end.date().toString('dd.MM.yyyy')}"
         )
 
     def _feedback(self, message: str) -> None:
@@ -935,6 +1181,49 @@ class MainWindow(QMainWindow):
     def _confirm(self, message: str) -> None:
         self._feedback(message)
 
+    def toggle_ai_bubble(self) -> None:
+        if self.ai_bubble.isVisible():
+            self._animate_ai_bubble(1.0, 0.0, 140, hide=True)
+            return
+        self.ai_bubble.adjustSize()
+        self._position_overlays()
+        self.ai_bubble_opacity.setOpacity(0.0)
+        self.ai_bubble.show()
+        self.ai_bubble.raise_()
+        self.ai_button.raise_()
+        self._animate_ai_bubble(0.0, 1.0, 150)
+
+    def _position_overlays(self) -> None:
+        if not hasattr(self, "ai_button"):
+            return
+        margin = 24
+        bottom_gap = 94
+        button_x = max(SIDEBAR_WIDTH + margin, self.width() - self.ai_button.width() - margin)
+        button_y = max(90, self.height() - self.ai_button.height() - bottom_gap)
+        self.ai_button.move(button_x, button_y)
+
+        self.ai_bubble.adjustSize()
+        bubble_x = max(SIDEBAR_WIDTH + margin, self.width() - self.ai_bubble.width() - margin)
+        bubble_y = max(84, button_y - self.ai_bubble.height() - 12)
+        self.ai_bubble.move(bubble_x, bubble_y)
+        self.ai_button.raise_()
+        if self.ai_bubble.isVisible():
+            self.ai_bubble.raise_()
+            self.ai_button.raise_()
+
+    def _animate_ai_bubble(self, start: float, end: float, duration: int, hide: bool = False) -> None:
+        self.ai_bubble_animation.stop()
+        self.ai_bubble_animation.setDuration(duration)
+        self.ai_bubble_animation.setStartValue(start)
+        self.ai_bubble_animation.setEndValue(end)
+        if self.ai_bubble_hide_connected:
+            self.ai_bubble_animation.finished.disconnect()
+            self.ai_bubble_hide_connected = False
+        if hide:
+            self.ai_bubble_animation.finished.connect(self.ai_bubble.hide)
+            self.ai_bubble_hide_connected = True
+        self.ai_bubble_animation.start()
+
     def _animate_toast(self, start: float, end: float, duration: int, hide: bool = False) -> None:
         self.toast_animation.stop()
         self.toast_animation.setDuration(duration)
@@ -947,3 +1236,7 @@ class MainWindow(QMainWindow):
             self.toast_animation.finished.connect(self.toast.hide)
             self.toast_hide_connected = True
         self.toast_animation.start()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_overlays()

@@ -34,7 +34,7 @@ def run() -> int:
         profile.contract_start = "2026-08-04"
         profiles.save(profile)
     window = MainWindow(profile, profiles, reports, Path.cwd() / "assets" / "formblatt9.pdf")
-    window.resize(1420, 900)
+    window.resize(1320, 820)
     window.show()
     return app.exec()
 
@@ -84,8 +84,73 @@ QPushButton:disabled {
   background: #f8f9fb;
 }
 QPushButton#iconButton {
-  padding: 7px 10px;
-  min-width: 88px;
+  padding: 7px;
+  min-width: 42px;
+  max-width: 42px;
+  min-height: 42px;
+  max-height: 42px;
+}
+QPushButton#aiFloatingButton {
+  background: #0a66ff;
+  border: 1px solid #0a66ff;
+  border-radius: 27px;
+  padding: 0;
+}
+QPushButton#aiFloatingButton:hover {
+  background: #005ee8;
+  border-color: #005ee8;
+}
+QPushButton#aiFloatingButton:pressed {
+  background: #0054cc;
+  border-color: #0054cc;
+}
+QPushButton#aiActionButton {
+  background: #ffffff;
+  color: #1d2939;
+  border-color: #dbe7f8;
+  text-align: left;
+  padding: 9px 12px;
+}
+QPushButton#aiActionButton:hover {
+  background: #eef6ff;
+  border-color: #bcd4ff;
+}
+QPushButton#aiActionButton:pressed {
+  background: #dfeeff;
+  border-color: #91c2ff;
+}
+QPushButton#moreButton {
+  padding: 0 16px;
+}
+QPushButton#dangerButton {
+  padding: 0 14px;
+  color: #d92d20;
+  border-color: #efc8c4;
+  background: #ffffff;
+}
+QPushButton#dangerButton:hover {
+  background: #fff5f5;
+  border-color: #f4a7a1;
+}
+QPushButton#dangerButton:pressed {
+  background: #fee4e2;
+  border-color: #f97066;
+}
+QMenu {
+  background: #ffffff;
+  border: 1px solid #d9dde7;
+  border-radius: 10px;
+  padding: 8px;
+}
+QMenu::item {
+  color: #1d2939;
+  border-radius: 7px;
+  padding: 9px 26px 9px 12px;
+  margin: 2px;
+}
+QMenu::item:selected {
+  background: #eef5ff;
+  color: #075bd8;
 }
 QListWidget#weekList {
   background: #ffffff;
@@ -175,22 +240,26 @@ QFrame#actionBar {
   background: #ffffff;
   border-top: 1px solid #dde2ec;
 }
-QFrame#summaryCard, QFrame#panel, QFrame#bluePanel {
+QFrame#summaryCard, QFrame#panel, QFrame#aiBubble {
   background: #ffffff;
   border: 1px solid #dde2ec;
   border-radius: 10px;
 }
 QFrame#summaryCard {
   min-height: 112px;
-  max-height: 126px;
+  max-height: 112px;
 }
-QFrame#bluePanel {
+QFrame#aiBubble {
   background: #f4f8ff;
   border-color: #bcd4ff;
+  border-radius: 12px;
 }
 QFrame#dayRow {
   background: #ffffff;
   border-bottom: 1px solid #e7eaf0;
+}
+QFrame#dayRow[active="true"] {
+  background: #f8fbff;
 }
 QWidget#dayDateCell {
   background: transparent;
@@ -215,16 +284,17 @@ QLabel#sectionLabel {
 QLabel#mutedLabel {
   color: #667085;
 }
-QLabel#cardMarker {
-  color: #0a66ff;
-  background: #f4f8ff;
-  border-radius: 7px;
-  padding: 5px 8px;
-  font-size: 12px;
-  font-weight: 700;
+QLabel#cardIconBox {
+  background: #f1f7ff;
+  border: 1px solid #d8e9ff;
+  border-radius: 8px;
+}
+QLabel#cardTitle {
+  color: #667085;
+  font-weight: 650;
 }
 QLabel#cardValue {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   color: #111827;
 }
@@ -233,10 +303,10 @@ QLabel#dayName {
   font-weight: 700;
 }
 QLabel#hoursValue {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 650;
   color: #111827;
-  min-width: 64px;
+  min-width: 76px;
 }
 QLabel#activityText {
   font-size: 15px;
@@ -245,6 +315,21 @@ QLabel#activityText {
 QLabel#panelTitle {
   font-size: 16px;
   font-weight: 750;
+}
+QLabel#emptyIcon {
+  background: #eef5ff;
+  border: 1px solid #d8e9ff;
+  border-radius: 18px;
+  padding: 16px;
+}
+QLabel#emptyTitle {
+  color: #101828;
+  font-size: 22px;
+  font-weight: 760;
+}
+QLabel#emptyText {
+  color: #667085;
+  font-size: 15px;
 }
 QLabel#dialogTitle {
   font-size: 24px;
@@ -278,13 +363,6 @@ QLabel#companyRole {
 }
 QLabel#companyIcon {
   background: transparent;
-}
-QLabel#pdfPreview {
-  background: #f8fafc;
-  border: 1px dashed #c8d1df;
-  border-radius: 8px;
-  color: #667085;
-  min-height: 220px;
 }
 QLabel#toast {
   background: #111827;
