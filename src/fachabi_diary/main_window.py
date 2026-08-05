@@ -37,7 +37,6 @@ from .models import DailyEntry, Profile, STATUSES, WeeklyReport
 from .repositories import ProfileRepository, WeeklyReportRepository
 from .services.pdf_exporter import PdfExportError, PdfExporter
 from .services.report_formatter import format_date, format_hours, has_exportable_activity
-from .services.text_assistant import LocalTextAssistant
 
 
 def _monday_for(value: date) -> date:
@@ -53,7 +52,8 @@ def _activity_preview(text: str, line_width: int = 72) -> str:
     text = text.strip()
     if not text:
         return "Noch keine Tätigkeit eingetragen"
-    paragraphs = [" ".join(part.split()) for part in text.splitlines() if part.strip()]
+    paragraphs = [" ".join(part.split())
+                  for part in text.splitlines() if part.strip()]
     lines: list[str] = []
     for paragraph in paragraphs:
         lines.extend(
@@ -81,8 +81,10 @@ class ProfileDialog(QDialog):
         self.company_name = QLineEdit(self._profile.company_name)
         self.company_address = QLineEdit(self._profile.company_address)
         self.internship_field = QLineEdit(self._profile.internship_field)
-        self.contract_start = QDateEdit(QDate.fromString(self._profile.contract_start, "yyyy-MM-dd"))
-        self.contract_end = QDateEdit(QDate.fromString(self._profile.contract_end, "yyyy-MM-dd"))
+        self.contract_start = QDateEdit(QDate.fromString(
+            self._profile.contract_start, "yyyy-MM-dd"))
+        self.contract_end = QDateEdit(QDate.fromString(
+            self._profile.contract_end, "yyyy-MM-dd"))
         self.default_location = QLineEdit(self._profile.default_location)
         for widget in (self.contract_start, self.contract_end):
             widget.setCalendarPopup(True)
@@ -144,8 +146,10 @@ class SettingsDialog(QDialog):
         self.company_name = QLineEdit(profile.company_name)
         self.company_address = QLineEdit(profile.company_address)
         self.internship_field = QLineEdit(profile.internship_field)
-        self.contract_start = QDateEdit(QDate.fromString(profile.contract_start, "yyyy-MM-dd"))
-        self.contract_end = QDateEdit(QDate.fromString(profile.contract_end, "yyyy-MM-dd"))
+        self.contract_start = QDateEdit(
+            QDate.fromString(profile.contract_start, "yyyy-MM-dd"))
+        self.contract_end = QDateEdit(
+            QDate.fromString(profile.contract_end, "yyyy-MM-dd"))
         self.default_location = QLineEdit(profile.default_location)
         for widget in (self.contract_start, self.contract_end):
             widget.setCalendarPopup(True)
@@ -166,10 +170,12 @@ class SettingsDialog(QDialog):
         info_layout.setContentsMargins(18, 16, 18, 16)
         info_layout.setSpacing(8)
         template_state = "gefunden" if template_path.exists() else "fehlt"
-        template_label = QLabel(f"PDF-Vorlage: {template_state}\n{template_path}")
+        template_label = QLabel(
+            f"PDF-Vorlage: {template_state}\n{template_path}")
         template_label.setObjectName("mutedLabel")
         template_label.setWordWrap(True)
-        storage_label = QLabel("Daten werden lokal in SQLite gespeichert. Cloud, Login und Sync sind deaktiviert.")
+        storage_label = QLabel(
+            "Daten werden lokal in SQLite gespeichert. Cloud, Login und Sync sind deaktiviert.")
         storage_label.setObjectName("mutedLabel")
         storage_label.setWordWrap(True)
         info_layout.addWidget(template_label)
@@ -217,9 +223,12 @@ class ReportDetailsDialog(QDialog):
         self.number = QSpinBox()
         self.number.setRange(1, 999)
         self.number.setValue(report.report_number)
-        self.week_start = QDateEdit(QDate.fromString(report.week_start, "yyyy-MM-dd"))
-        self.week_end = QDateEdit(QDate.fromString(report.week_end, "yyyy-MM-dd"))
-        self.report_date = QDateEdit(QDate.fromString(report.report_date, "yyyy-MM-dd"))
+        self.week_start = QDateEdit(
+            QDate.fromString(report.week_start, "yyyy-MM-dd"))
+        self.week_end = QDateEdit(
+            QDate.fromString(report.week_end, "yyyy-MM-dd"))
+        self.report_date = QDateEdit(
+            QDate.fromString(report.report_date, "yyyy-MM-dd"))
         for widget in (self.week_start, self.week_end, self.report_date):
             widget.setCalendarPopup(True)
             widget.setDisplayFormat("dd.MM.yyyy")
@@ -249,7 +258,8 @@ class ReportDetailsDialog(QDialog):
         report.week_end = self.week_end.date().toString("yyyy-MM-dd")
         report.report_date = self.report_date.date().toString("yyyy-MM-dd")
         report.location = self.location.text().strip() or "Berlin"
-        report.status = self.status.text().strip() if self.status.text().strip() in STATUSES else report.status
+        report.status = self.status.text().strip(
+        ) if self.status.text().strip() in STATUSES else report.status
         return report
 
 
@@ -278,7 +288,8 @@ class SummaryCard(QFrame):
         self.value = QLabel(value)
         self.value.setObjectName("cardValue")
         self.value.setWordWrap(True)
-        self.value.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        self.value.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         layout.addLayout(header)
         layout.addStretch()
         layout.addWidget(self.value)
@@ -292,8 +303,10 @@ class HoverLiftButton(QPushButton):
         self._shadow.setBlurRadius(0)
         self._shadow.setOffset(0, 0)
         self.setGraphicsEffect(self._shadow)
-        self._blur_animation = QPropertyAnimation(self._shadow, b"blurRadius", self)
-        self._offset_animation = QPropertyAnimation(self._shadow, b"yOffset", self)
+        self._blur_animation = QPropertyAnimation(
+            self._shadow, b"blurRadius", self)
+        self._offset_animation = QPropertyAnimation(
+            self._shadow, b"yOffset", self)
         for animation in (self._blur_animation, self._offset_animation):
             animation.setDuration(140)
             animation.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -343,7 +356,8 @@ class ReportListItem(QFrame):
         body.setSpacing(5)
         self.title = QLabel(f"Bericht Nr. {report.report_number}")
         self.title.setObjectName("reportItemTitle")
-        period = QLabel(f"{format_date(report.week_start)} - {format_date(report.week_end)}")
+        period = QLabel(
+            f"{format_date(report.week_start)} - {format_date(report.week_end)}")
         period.setObjectName("mutedLabel")
         chip = StatusChip(report.status)
         body.addWidget(self.title)
@@ -375,7 +389,8 @@ class DayEntryDialog(QDialog):
         layout.setSpacing(14)
         form = QFormLayout()
         form.setSpacing(12)
-        self.date_edit = QDateEdit(QDate.fromString(entry.entry_date, "yyyy-MM-dd"))
+        self.date_edit = QDateEdit(
+            QDate.fromString(entry.entry_date, "yyyy-MM-dd"))
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setDisplayFormat("dd.MM.yyyy")
         self.hours = QDoubleSpinBox()
@@ -411,14 +426,12 @@ class DayEntryDialog(QDialog):
 
 
 class DayRow(QFrame):
-    selected = Signal(int)
-
-    def __init__(self, index: int = 0) -> None:
+    def __init__(self) -> None:
         super().__init__()
         self.setObjectName("dayRow")
         self.setMinimumHeight(80)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.index = index
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Minimum)
         self._entry = DailyEntry(date.today().isoformat())
         layout = QHBoxLayout(self)
         layout.setContentsMargins(22, 12, 16, 12)
@@ -442,9 +455,11 @@ class DayRow(QFrame):
         self.activity_label.setObjectName("activityText")
         self.activity_label.setWordWrap(True)
         self.activity_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.activity_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.activity_label.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         self.activity_label.setMinimumWidth(0)
-        self.activity_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.activity_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.edit_button = QPushButton()
         self.edit_button.setObjectName("iconButton")
         self.edit_button.setIcon(lucide_icon("pencil"))
@@ -456,11 +471,6 @@ class DayRow(QFrame):
         layout.addWidget(self.activity_label, 1)
         layout.addWidget(self.edit_button)
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.selected.emit(self.index)
-        super().mousePressEvent(event)
-
     def set_entry(self, entry: DailyEntry) -> None:
         self._entry = entry
         self.refresh()
@@ -469,13 +479,11 @@ class DayRow(QFrame):
         return self._entry
 
     def edit(self) -> None:
-        window = self.window()
-        if hasattr(window, "select_day_row"):
-            window.select_day_row(self.index)
         dialog = DayEntryDialog(self._entry, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._entry = dialog.entry()
             self.refresh()
+            window = self.window()
             if hasattr(window, "update_summary"):
                 window.update_summary()
             if hasattr(window, "_feedback"):
@@ -483,20 +491,17 @@ class DayRow(QFrame):
 
     def refresh(self) -> None:
         day = QDate.fromString(self._entry.entry_date, "yyyy-MM-dd")
-        names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+        names = ["Montag", "Dienstag", "Mittwoch",
+                 "Donnerstag", "Freitag", "Samstag", "Sonntag"]
         self.day_label.setText(names[day.dayOfWeek() - 1])
         self.date_label.setText(day.toString("dd.MM.yyyy"))
         self.hours_label.setText(f"{format_hours(self._entry.hours)} Std.")
-        self.activity_label.setText(_activity_preview(self._entry.activity_text))
+        self.activity_label.setText(
+            _activity_preview(self._entry.activity_text))
         self.updateGeometry()
 
     def _update_day_label(self) -> None:
         self.refresh()
-
-    def set_active(self, active: bool) -> None:
-        self.setProperty("active", active)
-        self.style().unpolish(self)
-        self.style().polish(self)
 
 
 class MainWindow(QMainWindow):
@@ -515,15 +520,14 @@ class MainWindow(QMainWindow):
         self.reports = reports
         self.template_path = template_path
         self.exporter = PdfExporter(template_path)
-        self.text_assistant = LocalTextAssistant()
         self.current_report: WeeklyReport | None = None
         self.day_rows: list[DayRow] = []
-        self.selected_day_index = 0
         self.toast = QLabel(self)
         self.toast.setObjectName("toast")
         self.toast_opacity = QGraphicsOpacityEffect(self.toast)
         self.toast.setGraphicsEffect(self.toast_opacity)
-        self.toast_animation = QPropertyAnimation(self.toast_opacity, b"opacity", self)
+        self.toast_animation = QPropertyAnimation(
+            self.toast_opacity, b"opacity", self)
         self.toast_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.toast_hide_connected = False
         self.toast.hide()
@@ -634,8 +638,10 @@ class MainWindow(QMainWindow):
         self.search.setPlaceholderText("Suchen...")
         self.search.setMinimumWidth(260)
         self.search.setMaximumWidth(620)
-        self.search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.search.addAction(lucide_icon("search"), QLineEdit.ActionPosition.LeadingPosition)
+        self.search.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.search.addAction(lucide_icon("search"),
+                              QLineEdit.ActionPosition.LeadingPosition)
         self.search.textChanged.connect(self.refresh_list)
         new_button = HoverLiftButton("Neue Woche")
         new_button.setObjectName("primaryButton")
@@ -665,14 +671,13 @@ class MainWindow(QMainWindow):
         icon.setObjectName("emptyIcon")
         icon.setPixmap(blue_icon("file-text", 36).pixmap(36, 36))
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setFixedSize(74, 74)
         title = QLabel("Erstelle eine Woche")
         title.setObjectName("emptyTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         text = QLabel("Noch kein Wochenbericht vorhanden.")
         text.setObjectName("emptyText")
         text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon)
         layout.addWidget(title)
         layout.addWidget(text)
         layout.addStretch()
@@ -683,7 +688,8 @@ class MainWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setObjectName("editorScroll")
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         inner = QWidget()
         layout = QVBoxLayout(inner)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -779,22 +785,20 @@ class MainWindow(QMainWindow):
         text.setWordWrap(True)
         bubble_layout.addWidget(text)
 
-        self.ai_action_buttons: list[QPushButton] = []
-        for label, icon_name, callback in (
-            ("Tagesnotiz verbessern", "pencil", self.improve_selected_day_note),
-            ("Woche zusammenfassen", "list", self.summarize_week_note),
-            ("Formeller Text", "file-text", self.formalize_week_text),
+        for label, icon_name in (
+            ("Tagesnotiz verbessern", "pencil"),
+            ("Woche zusammenfassen", "list"),
+            ("Formeller Text", "file-text"),
         ):
             button = QPushButton(label)
-            button.setObjectName("aiActionButton")
             button.setIcon(blue_icon(icon_name))
-            button.clicked.connect(callback)
+            button.setEnabled(False)
             bubble_layout.addWidget(button)
-            self.ai_action_buttons.append(button)
 
         self.ai_bubble_opacity = QGraphicsOpacityEffect(self.ai_bubble)
         self.ai_bubble.setGraphicsEffect(self.ai_bubble_opacity)
-        self.ai_bubble_animation = QPropertyAnimation(self.ai_bubble_opacity, b"opacity", self)
+        self.ai_bubble_animation = QPropertyAnimation(
+            self.ai_bubble_opacity, b"opacity", self)
         self.ai_bubble_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.ai_bubble_hide_connected = False
         self.ai_bubble.hide()
@@ -808,7 +812,8 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         self.total = QLabel("0 Std.")
         self.total.setObjectName("totalLabel")
-        self.total.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.total.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         save = HoverLiftButton("Speichern")
         save.setObjectName("primaryButton")
         save.setIcon(lucide_icon("save", "#FFFFFF"))
@@ -827,21 +832,24 @@ class MainWindow(QMainWindow):
             (more, 132),
         ):
             button.setFixedSize(width, 42)
-            button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            button.setSizePolicy(QSizePolicy.Policy.Fixed,
+                                 QSizePolicy.Policy.Fixed)
         self.more_menu = QMenu(self)
         printed_action = QAction("Gedruckt markieren", self)
         printed_action.setIcon(lucide_icon("printer"))
         printed_action.triggered.connect(lambda: self.mark_status("Gedruckt"))
         signed_action = QAction("Unterschrieben markieren", self)
         signed_action.setIcon(lucide_icon("signature"))
-        signed_action.triggered.connect(lambda: self.mark_status("Unterschrieben"))
+        signed_action.triggered.connect(
+            lambda: self.mark_status("Unterschrieben"))
         weekend_action = QAction("Wochenende eintragen", self)
         weekend_action.setIcon(lucide_icon("calendar"))
         weekend_action.triggered.connect(self.fill_weekend_defaults)
         self.more_menu.addAction(printed_action)
         self.more_menu.addAction(signed_action)
         self.more_menu.addAction(weekend_action)
-        more.clicked.connect(lambda: self.more_menu.exec(more.mapToGlobal(more.rect().bottomRight())))
+        more.clicked.connect(lambda: self.more_menu.exec(
+            more.mapToGlobal(more.rect().bottomRight())))
         save.clicked.connect(self.save_current)
         export.clicked.connect(self.export_current)
         delete.clicked.connect(self.delete_current)
@@ -877,7 +885,8 @@ class MainWindow(QMainWindow):
                 continue
             if first_visible_id is None:
                 first_visible_id = report.id
-            active = selected == report.id or (selected is None and self.current_report and self.current_report.id == report.id)
+            active = selected == report.id or (
+                selected is None and self.current_report and self.current_report.id == report.id)
             item = ReportListItem(report, active)
             item.selected.connect(self.load_report_by_id)
             self.report_list_layout.addWidget(item)
@@ -913,9 +922,11 @@ class MainWindow(QMainWindow):
 
     def show_report(self, report: WeeklyReport) -> None:
         self.number.setValue(report.report_number)
-        self.week_start.setDate(QDate.fromString(report.week_start, "yyyy-MM-dd"))
+        self.week_start.setDate(QDate.fromString(
+            report.week_start, "yyyy-MM-dd"))
         self.week_end.setDate(QDate.fromString(report.week_end, "yyyy-MM-dd"))
-        self.report_date.setDate(QDate.fromString(report.report_date, "yyyy-MM-dd"))
+        self.report_date.setDate(QDate.fromString(
+            report.report_date, "yyyy-MM-dd"))
         self.location.setText(report.location)
         self.notes.setPlainText(report.general_notes)
         self.status.setText(report.status)
@@ -929,98 +940,32 @@ class MainWindow(QMainWindow):
             if widget is not None:
                 widget.deleteLater()
         self.day_rows = []
-        entries = report.entries[:7] or self._empty_week_entries(report.week_start)
-        for index, entry in enumerate(entries[:7]):
-            row = DayRow(index)
-            row.selected.connect(self.select_day_row)
+        entries = report.entries[:7] or self._empty_week_entries(
+            report.week_start)
+        for entry in entries[:7]:
+            row = DayRow()
             row.set_entry(entry)
             self.days_layout.addWidget(row)
             self.day_rows.append(row)
-        if self.day_rows:
-            self.select_day_row(min(self.selected_day_index, len(self.day_rows) - 1))
         self.days_layout.addStretch()
 
     def _empty_week_entries(self, week_start: str) -> list[DailyEntry]:
         start = date.fromisoformat(week_start)
         return [
-            DailyEntry(date.fromordinal(start.toordinal() + offset).isoformat())
+            DailyEntry(date.fromordinal(
+                start.toordinal() + offset).isoformat())
             for offset in range(7)
         ]
 
     def new_week(self) -> None:
         report_number = self.reports.next_number()
-        start = _week_start_for_report(self.profile.contract_start, report_number)
-        report = WeeklyReport.new(report_number, start, self.profile.default_location)
+        start = _week_start_for_report(
+            self.profile.contract_start, report_number)
+        report = WeeklyReport.new(
+            report_number, start, self.profile.default_location)
         report_id = self.reports.save(report)
         self.refresh_list(report_id)
         self._confirm("Woche erstellt")
-
-    def select_day_row(self, index: int) -> None:
-        self.selected_day_index = max(0, min(index, len(self.day_rows) - 1)) if self.day_rows else 0
-        for row in self.day_rows:
-            row.set_active(row.index == self.selected_day_index)
-
-    def _ai_target_day_row(self) -> DayRow | None:
-        if not self.day_rows:
-            return None
-        selected = self.day_rows[self.selected_day_index]
-        if selected.entry().activity_text.strip() and selected.entry().activity_text.strip().casefold() != "wochenende":
-            return selected
-        for row in self.day_rows:
-            text = row.entry().activity_text.strip()
-            if text and text.casefold() != "wochenende":
-                return row
-        return None
-
-    def improve_selected_day_note(self) -> None:
-        if self.current_report is None:
-            return
-        row = self._ai_target_day_row()
-        if row is None:
-            self._feedback("Keine Tagesnotiz")
-            return
-        entry = row.entry()
-        improved = self.text_assistant.improve_activity(entry.activity_text)
-        if not improved:
-            self._feedback("Keine Tagesnotiz")
-            return
-        row.set_entry(
-            DailyEntry(
-                entry_date=entry.entry_date,
-                hours=entry.hours,
-                activity_text=improved,
-                id=entry.id,
-                weekly_report_id=entry.weekly_report_id,
-            )
-        )
-        self.select_day_row(row.index)
-        self.update_summary()
-        self._confirm("Tagesnotiz verbessert")
-
-    def summarize_week_note(self) -> None:
-        if self.current_report is None:
-            return
-        summary = self.text_assistant.summarize_week(self.read_report())
-        if not summary:
-            self._feedback("Keine Einträge")
-            return
-        self.notes.setPlainText(summary)
-        self._confirm("Wochennotiz erstellt")
-
-    def formalize_week_text(self) -> None:
-        if self.current_report is None:
-            return
-        formalized = self.text_assistant.formalize_report(self.read_report())
-        changed = False
-        for row, entry in zip(self.day_rows, formalized.entries):
-            if row.entry().activity_text != entry.activity_text:
-                changed = True
-            row.set_entry(entry)
-        if self.notes.toPlainText().strip() != formalized.general_notes.strip():
-            changed = True
-        self.notes.setPlainText(formalized.general_notes)
-        self.update_summary()
-        self._confirm("Text formeller" if changed else "Text geprüft")
 
     def fill_weekend_defaults(self) -> None:
         if self.current_report is None:
@@ -1042,7 +987,8 @@ class MainWindow(QMainWindow):
             )
             changed = True
         self.update_summary()
-        self._confirm("Wochenende eingetragen" if changed else "Wochenende bereits gesetzt")
+        self._confirm(
+            "Wochenende eingetragen" if changed else "Wochenende bereits gesetzt")
 
     def read_report(self) -> WeeklyReport:
         entries = [row.entry() for row in self.day_rows]
@@ -1060,10 +1006,12 @@ class MainWindow(QMainWindow):
 
     def validate_report(self, report: WeeklyReport, for_export: bool = False) -> bool:
         if QDate.fromString(report.week_end, "yyyy-MM-dd") < QDate.fromString(report.week_start, "yyyy-MM-dd"):
-            QMessageBox.warning(self, "Prüfung", "Das Enddatum darf nicht vor dem Startdatum liegen.")
+            QMessageBox.warning(
+                self, "Prüfung", "Das Enddatum darf nicht vor dem Startdatum liegen.")
             return False
         if for_export and not has_exportable_activity(report):
-            QMessageBox.warning(self, "Prüfung", "Für den PDF-Export ist mindestens eine Tätigkeit erforderlich.")
+            QMessageBox.warning(
+                self, "Prüfung", "Für den PDF-Export ist mindestens eine Tätigkeit erforderlich.")
             return False
         if report.total_hours == 0:
             QMessageBox.warning(self, "Prüfung", "Die Wochenstunden sind 0.")
@@ -1093,7 +1041,8 @@ class MainWindow(QMainWindow):
         report = self.reports.get(self.current_report.id)
         if not self.validate_report(report, for_export=True):
             return
-        path, _ = QFileDialog.getSaveFileName(self, "PDF speichern", f"bericht-{report.report_number}.pdf", "PDF (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "PDF speichern", f"bericht-{report.report_number}.pdf", "PDF (*.pdf)")
         if not path:
             return
         try:
@@ -1104,11 +1053,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "PDF", str(exc))
 
     def export_all(self) -> None:
-        reports = [report for report in self.reports.list() if has_exportable_activity(report)]
+        reports = [report for report in self.reports.list(
+        ) if has_exportable_activity(report)]
         if not reports:
-            QMessageBox.warning(self, "PDF", "Es gibt keine exportierbaren Berichte.")
+            QMessageBox.warning(
+                self, "PDF", "Es gibt keine exportierbaren Berichte.")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Alle Berichte speichern", "berichte.pdf", "PDF (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Alle Berichte speichern", "berichte.pdf", "PDF (*.pdf)")
         if path:
             self.exporter.export_many(self.profile, reports, Path(path))
             self._confirm("Export erstellt")
@@ -1125,7 +1077,8 @@ class MainWindow(QMainWindow):
     def delete_current(self) -> None:
         if self.current_report is None:
             return
-        result = QMessageBox.question(self, "Löschen", "Diesen Bericht wirklich löschen?")
+        result = QMessageBox.question(
+            self, "Löschen", "Diesen Bericht wirklich löschen?")
         if result == QMessageBox.StandardButton.Yes:
             self.reports.delete(self.current_report.id)
             self.current_report = None
@@ -1138,7 +1091,8 @@ class MainWindow(QMainWindow):
             self.profile = dialog.profile()
             self.profiles.save(self.profile)
             self.company_footer.setText(self.profile.company_name)
-            self.refresh_list(self.current_report.id if self.current_report else None)
+            self.refresh_list(
+                self.current_report.id if self.current_report else None)
             self._confirm("Einstellungen gespeichert")
 
     def edit_report_details(self) -> None:
@@ -1176,7 +1130,8 @@ class MainWindow(QMainWindow):
         self.toast.show()
         self.toast.raise_()
         self._animate_toast(0.0, 1.0, 140)
-        QTimer.singleShot(1900, lambda: self._animate_toast(1.0, 0.0, 260, hide=True))
+        QTimer.singleShot(1900, lambda: self._animate_toast(
+            1.0, 0.0, 260, hide=True))
 
     def _confirm(self, message: str) -> None:
         self._feedback(message)
@@ -1198,12 +1153,15 @@ class MainWindow(QMainWindow):
             return
         margin = 24
         bottom_gap = 94
-        button_x = max(SIDEBAR_WIDTH + margin, self.width() - self.ai_button.width() - margin)
-        button_y = max(90, self.height() - self.ai_button.height() - bottom_gap)
+        button_x = max(SIDEBAR_WIDTH + margin, self.width() -
+                       self.ai_button.width() - margin)
+        button_y = max(90, self.height() -
+                       self.ai_button.height() - bottom_gap)
         self.ai_button.move(button_x, button_y)
 
         self.ai_bubble.adjustSize()
-        bubble_x = max(SIDEBAR_WIDTH + margin, self.width() - self.ai_bubble.width() - margin)
+        bubble_x = max(SIDEBAR_WIDTH + margin, self.width() -
+                       self.ai_bubble.width() - margin)
         bubble_y = max(84, button_y - self.ai_bubble.height() - 12)
         self.ai_bubble.move(bubble_x, bubble_y)
         self.ai_button.raise_()
