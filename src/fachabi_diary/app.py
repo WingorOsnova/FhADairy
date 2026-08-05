@@ -30,6 +30,9 @@ def run() -> int:
             return 0
         profile = dialog.profile()
         profiles.save(profile)
+    elif profile.contract_start == "2026-08-01":
+        profile.contract_start = "2026-08-04"
+        profiles.save(profile)
     window = MainWindow(profile, profiles, reports, Path.cwd() / "assets" / "formblatt9.pdf")
     window.resize(1420, 900)
     window.show()
@@ -65,8 +68,7 @@ QPushButton {
 QPushButton:hover { background: #f0f0f2; }
 QPushButton:pressed {
   background: #e6e9ef;
-  padding-top: 10px;
-  padding-bottom: 8px;
+  border-color: #b8c0cc;
 }
 QPushButton#primaryButton {
   background: #0a66ff;
@@ -109,6 +111,61 @@ QScrollArea QScrollBar:vertical {
 QFrame#sidebar {
   background: #f8f9fc;
   border-right: 1px solid #dde2ec;
+}
+QFrame#sidebarDivider {
+  background: #e8ecf2;
+  border: none;
+  max-height: 1px;
+}
+QFrame#reportListItem {
+  background: #ffffff;
+  border: 1px solid transparent;
+  border-radius: 12px;
+}
+QFrame#reportListItem:hover {
+  background: #f8fbff;
+  border-color: #dbeafe;
+}
+QFrame#reportListItem[active="true"] {
+  background: #eaf2ff;
+  border-color: #c7ddff;
+}
+QFrame#selectedStripe {
+  background: transparent;
+  border-radius: 2px;
+}
+QFrame#selectedStripe[active="true"] {
+  background: #0a6cff;
+}
+QLabel#reportItemTitle {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 720;
+}
+QLabel#reportItemTitle[active="true"] {
+  color: #075bd8;
+}
+QLabel#statusChip {
+  border-radius: 9px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 650;
+}
+QLabel#statusChip[status="Entwurf"] {
+  color: #0a6cff;
+  background: #dbeafe;
+}
+QLabel#statusChip[status="Bereit"] {
+  color: #b45309;
+  background: #fef3c7;
+}
+QLabel#statusChip[status="Gedruckt"] {
+  color: #475569;
+  background: #e2e8f0;
+}
+QLabel#statusChip[status="Unterschrieben"] {
+  color: #15803d;
+  background: #dcfce7;
 }
 QFrame#toolbar {
   background: #ffffff;
@@ -204,12 +261,23 @@ QLabel#totalLabel {
   font-size: 18px;
   font-weight: 750;
 }
-QLabel#companyFooter {
+QFrame#companyFooter {
   background: #ffffff;
   border: 1px solid #dde2ec;
   border-radius: 10px;
-  padding: 12px;
+}
+QLabel#companyName {
+  background: transparent;
   color: #344054;
+  font-weight: 650;
+}
+QLabel#companyRole {
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+}
+QLabel#companyIcon {
+  background: transparent;
 }
 QLabel#pdfPreview {
   background: #f8fafc;
@@ -217,5 +285,12 @@ QLabel#pdfPreview {
   border-radius: 8px;
   color: #667085;
   min-height: 220px;
+}
+QLabel#toast {
+  background: #111827;
+  color: #ffffff;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 650;
 }
 """

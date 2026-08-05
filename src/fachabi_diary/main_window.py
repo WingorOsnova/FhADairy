@@ -3,20 +3,21 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QEasingCurve, QDate, QPropertyAnimation, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -27,6 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .design import RIGHT_PANEL_WIDTH, SIDEBAR_WIDTH, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH
+from .icons import blue_icon, lucide_icon
 from .models import DailyEntry, Profile, STATUSES, WeeklyReport
 from .repositories import ProfileRepository, WeeklyReportRepository
 from .services.pdf_exporter import PdfExportError, PdfExporter
@@ -167,24 +170,125 @@ class SettingsDialog(QDialog):
         )
 
 
+class ReportDetailsDialog(QDialog):
+    def __init__(self, report: WeeklyReport, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Berichtsdaten bearbeiten")
+        self.setMinimumWidth(560)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+        title = QLabel("Berichtsdaten")
+        title.setObjectName("dialogTitle")
+        layout.addWidget(title)
+        form = QFormLayout()
+        form.setSpacing(12)
+        self.number = QSpinBox()
+        self.number.setRange(1, 999)
+        self.number.setValue(report.report_number)
+        self.week_start = QDateEdit(QDate.fromString(report.week_start, "yyyy-MM-dd"))
+        self.week_end = QDateEdit(QDate.fromString(report.week_end, "yyyy-MM-dd"))
+        self.report_date = QDateEdit(QDate.fromString(report.report_date, "yyyy-MM-dd"))
+        for widget in (self.week_start, self.week_end, self.report_date):
+            widget.setCalendarPopup(True)
+            widget.setDisplayFormat("dd.MM.yyyy")
+        self.location = QLineEdit(report.location)
+        self.status = QLineEdit(report.status)
+        form.addRow("Bericht Nr.", self.number)
+        form.addRow("Zeitraum von", self.week_start)
+        form.addRow("Zeitraum bis", self.week_end)
+        form.addRow("Ort", self.location)
+        form.addRow("Datum", self.report_date)
+        form.addRow("Status", self.status)
+        layout.addLayout(form)
+        buttons = QHBoxLayout()
+        cancel = QPushButton("Abbrechen")
+        save = QPushButton("Speichern")
+        save.setObjectName("primaryButton")
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self.accept)
+        buttons.addStretch()
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+        layout.addLayout(buttons)
+
+    def apply_to(self, report: WeeklyReport) -> WeeklyReport:
+        report.report_number = self.number.value()
+        report.week_start = self.week_start.date().toString("yyyy-MM-dd")
+        report.week_end = self.week_end.date().toString("yyyy-MM-dd")
+        report.report_date = self.report_date.date().toString("yyyy-MM-dd")
+        report.location = self.location.text().strip() or "Berlin"
+        report.status = self.status.text().strip() if self.status.text().strip() in STATUSES else report.status
+        return report
+
+
 class SummaryCard(QFrame):
-    def __init__(self, title: str, value: str = "", accent: str = "") -> None:
+    def __init__(self, title: str, value: str = "", icon_name: str = "file-text") -> None:
         super().__init__()
         self.setObjectName("summaryCard")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(6)
-        marker = QLabel(accent)
-        marker.setObjectName("cardMarker")
+        layout.setSpacing(7)
+        marker = QLabel()
+        marker.setPixmap(blue_icon(icon_name, 19).pixmap(19, 19))
+        marker.setObjectName("cardIcon")
         label = QLabel(title)
         label.setObjectName("mutedLabel")
         self.value = QLabel(value)
         self.value.setObjectName("cardValue")
         self.value.setWordWrap(True)
         layout.addWidget(marker)
-        layout.addSpacing(18)
+        layout.addStretch()
         layout.addWidget(label)
         layout.addWidget(self.value)
+
+
+class StatusChip(QLabel):
+    def __init__(self, status: str) -> None:
+        super().__init__(status)
+        self.setObjectName("statusChip")
+        self.setProperty("status", status)
+
+
+class ReportListItem(QFrame):
+    selected = Signal(int)
+
+    def __init__(self, report: WeeklyReport, active: bool = False) -> None:
+        super().__init__()
+        self.report = report
+        self.setObjectName("reportListItem")
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setMinimumHeight(92)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+        self.stripe = QFrame()
+        self.stripe.setObjectName("selectedStripe")
+        self.stripe.setFixedWidth(3)
+        body = QVBoxLayout()
+        body.setSpacing(5)
+        self.title = QLabel(f"Bericht Nr. {report.report_number}")
+        self.title.setObjectName("reportItemTitle")
+        period = QLabel(f"{format_date(report.week_start)} - {format_date(report.week_end)}")
+        period.setObjectName("mutedLabel")
+        chip = StatusChip(report.status)
+        body.addWidget(self.title)
+        body.addWidget(period)
+        body.addWidget(chip, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.stripe)
+        layout.addLayout(body, 1)
+        self.set_active(active)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self.report.id is not None:
+            self.selected.emit(self.report.id)
+        super().mousePressEvent(event)
+
+    def set_active(self, active: bool) -> None:
+        for widget in (self, self.stripe, self.title):
+            widget.setProperty("active", active)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
 
 
 class DayEntryDialog(QDialog):
@@ -258,8 +362,11 @@ class DayRow(QFrame):
         self.activity_label = QLabel("Noch keine Tätigkeit eingetragen")
         self.activity_label.setObjectName("activityText")
         self.activity_label.setWordWrap(True)
-        self.edit_button = QPushButton("Bearbeiten")
+        self.edit_button = QPushButton()
         self.edit_button.setObjectName("iconButton")
+        self.edit_button.setIcon(lucide_icon("pencil"))
+        self.edit_button.setToolTip("Tagesnotiz bearbeiten")
+        self.edit_button.setFixedSize(42, 42)
         self.edit_button.clicked.connect(self.edit)
         layout.addWidget(date_wrap)
         layout.addWidget(self.hours_label)
@@ -307,6 +414,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.setWindowTitle("Fachabi Diary")
+        self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self.profile = profile
         self.profiles = profiles
         self.reports = reports
@@ -314,8 +422,15 @@ class MainWindow(QMainWindow):
         self.exporter = PdfExporter(template_path)
         self.current_report: WeeklyReport | None = None
         self.day_rows: list[DayRow] = []
+        self.toast = QLabel(self)
+        self.toast.setObjectName("toast")
+        self.toast_opacity = QGraphicsOpacityEffect(self.toast)
+        self.toast.setGraphicsEffect(self.toast_opacity)
+        self.toast_animation = QPropertyAnimation(self.toast_opacity, b"opacity", self)
+        self.toast_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.toast_hide_connected = False
+        self.toast.hide()
         self._build_ui()
-        self.statusBar().showMessage("Bereit")
         self.refresh_list()
 
     def _build_ui(self) -> None:
@@ -331,7 +446,7 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(280)
+        sidebar.setFixedWidth(SIDEBAR_WIDTH)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(22, 24, 16, 24)
         layout.setSpacing(18)
@@ -350,16 +465,46 @@ class MainWindow(QMainWindow):
         logo_row.addWidget(logo)
         logo_row.addLayout(brand)
         layout.addLayout(logo_row)
+        top_divider = QFrame()
+        top_divider.setObjectName("sidebarDivider")
+        top_divider.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(top_divider)
         section = QLabel("Wochenberichte")
         section.setObjectName("sectionLabel")
         layout.addWidget(section)
-        self.list_widget = QListWidget()
-        self.list_widget.setObjectName("weekList")
-        self.list_widget.currentItemChanged.connect(self.load_selected)
-        layout.addWidget(self.list_widget, 1)
-        self.company_footer = QLabel(f"{self.profile.company_name}\nPraxisstelle")
-        self.company_footer.setObjectName("companyFooter")
-        layout.addWidget(self.company_footer)
+        self.report_list_scroll = QScrollArea()
+        self.report_list_scroll.setObjectName("reportListScroll")
+        self.report_list_scroll.setWidgetResizable(True)
+        self.report_list_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.report_list_widget = QWidget()
+        self.report_list_layout = QVBoxLayout(self.report_list_widget)
+        self.report_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.report_list_layout.setSpacing(8)
+        self.report_list_scroll.setWidget(self.report_list_widget)
+        layout.addWidget(self.report_list_scroll, 1)
+        bottom_divider = QFrame()
+        bottom_divider.setObjectName("sidebarDivider")
+        bottom_divider.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(bottom_divider)
+        company_card = QFrame()
+        company_card.setObjectName("companyFooter")
+        company_layout = QHBoxLayout(company_card)
+        company_layout.setContentsMargins(14, 12, 14, 12)
+        company_layout.setSpacing(10)
+        company_icon = QLabel()
+        company_icon.setObjectName("companyIcon")
+        company_icon.setPixmap(blue_icon("building", 20).pixmap(20, 20))
+        company_text = QVBoxLayout()
+        company_text.setSpacing(2)
+        self.company_footer = QLabel(self.profile.company_name)
+        self.company_footer.setObjectName("companyName")
+        company_role = QLabel("Praxisstelle")
+        company_role.setObjectName("companyRole")
+        company_text.addWidget(self.company_footer)
+        company_text.addWidget(company_role)
+        company_layout.addWidget(company_icon)
+        company_layout.addLayout(company_text, 1)
+        layout.addWidget(company_card)
         return sidebar
 
     def _build_content(self) -> QWidget:
@@ -385,13 +530,17 @@ class MainWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText("Suchen...")
         self.search.setFixedWidth(320)
+        self.search.addAction(lucide_icon("search"), QLineEdit.ActionPosition.LeadingPosition)
         self.search.textChanged.connect(self.refresh_list)
-        new_button = QPushButton("+  Neue Woche")
+        new_button = QPushButton("Neue Woche")
         new_button.setObjectName("primaryButton")
+        new_button.setIcon(lucide_icon("plus", "#FFFFFF"))
         new_button.clicked.connect(self.new_week)
         export_all = QPushButton("Export")
+        export_all.setIcon(lucide_icon("upload"))
         export_all.clicked.connect(self.export_all)
         settings = QPushButton("Einstellungen")
+        settings.setIcon(lucide_icon("settings"))
         settings.clicked.connect(self.edit_profile)
         layout.addWidget(self.search)
         layout.addStretch()
@@ -412,20 +561,21 @@ class MainWindow(QMainWindow):
         layout.setSpacing(18)
         cards = QHBoxLayout()
         cards.setSpacing(12)
-        self.number_card = SummaryCard("Bericht Nr.", "01", "Bericht")
-        self.period_card = SummaryCard("Zeitraum", "", "Woche")
-        self.company_card = SummaryCard("Praxisstelle", self.profile.company_name, "Firma")
-        self.field_card = SummaryCard("Fachrichtung", self.profile.internship_field, "Bereich")
-        self.hours_card = SummaryCard("Gesamtstunden", "0", "Stunden")
-        for card in (self.number_card, self.period_card, self.company_card, self.field_card, self.hours_card):
-            cards.addWidget(card)
+        self.number_card = SummaryCard("Bericht Nr.", "01", "file-text")
+        self.period_card = SummaryCard("Zeitraum", "", "calendar")
+        self.company_card = SummaryCard("Praxisstelle", self.profile.company_name, "building")
+        self.field_card = SummaryCard("Fachrichtung", self.profile.internship_field, "code")
+        self.hours_card = SummaryCard("Gesamtstunden", "0", "clock")
+        for card, stretch in (
+            (self.number_card, 1),
+            (self.period_card, 2),
+            (self.company_card, 2),
+            (self.field_card, 3),
+            (self.hours_card, 1),
+        ):
+            cards.addWidget(card, stretch)
         layout.addLayout(cards)
 
-        meta = QFrame()
-        meta.setObjectName("panel")
-        grid = QGridLayout(meta)
-        grid.setContentsMargins(18, 16, 18, 16)
-        grid.setSpacing(12)
         self.number = QSpinBox()
         self.number.setRange(1, 999)
         self.week_start = QDateEdit()
@@ -440,18 +590,14 @@ class MainWindow(QMainWindow):
         self.location.textChanged.connect(self.update_summary)
         self.status = QLabel("Entwurf")
         self.status.setObjectName("statusPill")
-        grid.addWidget(QLabel("Nr."), 0, 0)
-        grid.addWidget(self.number, 0, 1)
-        grid.addWidget(QLabel("Von"), 0, 2)
-        grid.addWidget(self.week_start, 0, 3)
-        grid.addWidget(QLabel("Bis"), 0, 4)
-        grid.addWidget(self.week_end, 0, 5)
-        grid.addWidget(QLabel("Ort"), 1, 0)
-        grid.addWidget(self.location, 1, 1, 1, 3)
-        grid.addWidget(QLabel("Datum"), 1, 4)
-        grid.addWidget(self.report_date, 1, 5)
-        grid.addWidget(self.status, 0, 6, 2, 1)
-        layout.addWidget(meta)
+        details_row = QHBoxLayout()
+        details_row.addStretch()
+        edit_details = QPushButton("Berichtsdaten bearbeiten")
+        edit_details.setObjectName("ghostButton")
+        edit_details.setIcon(lucide_icon("pencil"))
+        edit_details.clicked.connect(self.edit_report_details)
+        details_row.addWidget(edit_details)
+        layout.addLayout(details_row)
 
         self.days_panel = QFrame()
         self.days_panel.setObjectName("panel")
@@ -477,7 +623,7 @@ class MainWindow(QMainWindow):
 
     def _build_right_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setFixedWidth(270)
+        panel.setFixedWidth(RIGHT_PANEL_WIDTH)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
@@ -485,15 +631,26 @@ class MainWindow(QMainWindow):
         ai.setObjectName("bluePanel")
         ai_layout = QVBoxLayout(ai)
         ai_layout.setContentsMargins(18, 18, 18, 18)
+        ai_header = QHBoxLayout()
+        ai_icon = QLabel()
+        ai_icon.setPixmap(blue_icon("sparkles", 18).pixmap(18, 18))
         title = QLabel("KI-Hilfe")
         title.setObjectName("panelTitle")
-        text = QLabel("Optionale Textvorschläge kommen später. Offizielle Exporte nutzen nur bestätigte Einträge.")
+        ai_header.addWidget(ai_icon)
+        ai_header.addWidget(title)
+        ai_header.addStretch()
+        text = QLabel("Optionale KI-Unterstützung.")
         text.setObjectName("mutedLabel")
         text.setWordWrap(True)
-        ai_layout.addWidget(title)
+        ai_layout.addLayout(ai_header)
         ai_layout.addWidget(text)
-        for label in ("Tagesnotiz verbessern", "Woche zusammenfassen", "Formeller Text"):
+        for label, icon_name in (
+            ("Tagesnotiz verbessern", "pencil"),
+            ("Woche zusammenfassen", "list"),
+            ("Formeller Text", "file-text"),
+        ):
             button = QPushButton(label)
+            button.setIcon(blue_icon(icon_name))
             button.setEnabled(False)
             ai_layout.addWidget(button)
         layout.addWidget(ai)
@@ -503,11 +660,15 @@ class MainWindow(QMainWindow):
         preview_layout.setContentsMargins(18, 18, 18, 18)
         preview_title = QLabel("Formblatt 9")
         preview_title.setObjectName("panelTitle")
-        self.preview_info = QLabel("PDF-Vorschau nach Export")
+        self.preview_info = QLabel("Noch keine Vorschau verfügbar\nErstelle zuerst einen PDF-Bericht.")
         self.preview_info.setObjectName("pdfPreview")
         self.preview_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_info.setWordWrap(True)
+        self.preview_icon = QLabel()
+        self.preview_icon.setPixmap(lucide_icon("file-pdf", "#EF4444", 42).pixmap(42, 42))
+        self.preview_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         preview_layout.addWidget(preview_title)
+        preview_layout.addWidget(self.preview_icon)
         preview_layout.addWidget(self.preview_info, 1)
         layout.addWidget(preview, 1)
         return panel
@@ -521,18 +682,30 @@ class MainWindow(QMainWindow):
         self.total.setObjectName("totalLabel")
         save = QPushButton("Speichern")
         save.setObjectName("primaryButton")
+        save.setIcon(lucide_icon("save", "#FFFFFF"))
         export = QPushButton("PDF erstellen")
+        export.setIcon(lucide_icon("file-pdf"))
         printed = QPushButton("Als gedruckt markieren")
+        printed.setIcon(lucide_icon("printer"))
         signed = QPushButton("Als unterschrieben markieren")
-        delete = QPushButton("Löschen")
+        signed.setIcon(lucide_icon("signature"))
+        more = QPushButton()
+        more.setObjectName("iconButton")
+        more.setIcon(lucide_icon("more-horizontal"))
+        more.setFixedSize(42, 42)
+        self.more_menu = QMenu(self)
+        delete_action = QAction("Bericht löschen", self)
+        delete_action.setIcon(lucide_icon("trash", "#EF4444"))
+        delete_action.triggered.connect(self.delete_current)
+        self.more_menu.addAction(delete_action)
+        more.clicked.connect(lambda: self.more_menu.exec(more.mapToGlobal(more.rect().bottomRight())))
         save.clicked.connect(self.save_current)
         export.clicked.connect(self.export_current)
         printed.clicked.connect(lambda: self.mark_status("Gedruckt"))
         signed.clicked.connect(lambda: self.mark_status("Unterschrieben"))
-        delete.clicked.connect(self.delete_current)
         layout.addWidget(self.total)
         layout.addStretch()
-        for button in (save, export, printed, signed, delete):
+        for button in (save, export, printed, signed, more):
             layout.addWidget(button)
         return bar
 
@@ -541,28 +714,40 @@ class MainWindow(QMainWindow):
         if isinstance(selected_id, str):
             selected = self.current_report.id if self.current_report else None
         search = self.search.text().strip().lower() if hasattr(self, "search") else ""
-        self.list_widget.clear()
+        while self.report_list_layout.count():
+            item = self.report_list_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+        first_visible_id = None
         for report in self.reports.list():
             label = self._report_list_label(report)
             if search and search not in label.lower():
                 continue
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, report.id)
-            self.list_widget.addItem(item)
-            if selected == report.id:
-                self.list_widget.setCurrentItem(item)
-        if self.list_widget.count() and self.list_widget.currentRow() < 0:
-            self.list_widget.setCurrentRow(0)
+            if first_visible_id is None:
+                first_visible_id = report.id
+            active = selected == report.id or (selected is None and self.current_report and self.current_report.id == report.id)
+            item = ReportListItem(report, active)
+            item.selected.connect(self.load_report_by_id)
+            self.report_list_layout.addWidget(item)
+        self.report_list_layout.addStretch()
+        if selected is not None:
+            self.load_report_by_id(selected)
+        elif self.current_report is None and first_visible_id is not None:
+            self.load_report_by_id(first_visible_id)
 
     def _report_list_label(self, report: WeeklyReport) -> str:
-        week = QDate.fromString(report.week_start, "yyyy-MM-dd").weekNumber()[0]
-        return f"KW {week}  |  Nr. {report.report_number}\n{format_date(report.week_start)} - {format_date(report.week_end)}\n{report.status}"
+        return f"Bericht Nr. {report.report_number}\n{format_date(report.week_start)} - {format_date(report.week_end)}\n{report.status}"
 
-    def load_selected(self, item: QListWidgetItem | None) -> None:
-        if item is None:
-            return
-        self.current_report = self.reports.get(int(item.data(Qt.ItemDataRole.UserRole)))
+    def load_report_by_id(self, report_id: int) -> None:
+        self.current_report = self.reports.get(report_id)
         self.show_report(self.current_report)
+        for index in range(self.report_list_layout.count()):
+            widget = self.report_list_layout.itemAt(index).widget()
+            if isinstance(widget, ReportListItem):
+                widget.set_active(widget.report.id == report_id)
 
     def show_report(self, report: WeeklyReport) -> None:
         self.number.setValue(report.report_number)
@@ -603,7 +788,7 @@ class MainWindow(QMainWindow):
             last_end = date.fromisoformat(existing[-1].week_end)
             start = last_end + timedelta(days=1)
         else:
-            start = date.today() - timedelta(days=date.today().weekday())
+            start = date.fromisoformat(self.profile.contract_start)
         report = WeeklyReport.new(self.reports.next_number(), start, self.profile.default_location)
         report_id = self.reports.save(report)
         self.refresh_list(report_id)
@@ -664,8 +849,7 @@ class MainWindow(QMainWindow):
         try:
             self.exporter.export_week(self.profile, report, Path(path))
             self.preview_info.setText(f"Erstellt:\n{Path(path).name}")
-            self._feedback("PDF erstellt")
-            QMessageBox.information(self, "PDF", "PDF wurde erstellt.")
+            self._confirm("PDF erstellt")
         except PdfExportError as exc:
             self._feedback("PDF fehlgeschlagen")
             QMessageBox.critical(self, "PDF", str(exc))
@@ -679,8 +863,7 @@ class MainWindow(QMainWindow):
         if path:
             self.exporter.export_many(self.profile, reports, Path(path))
             self.preview_info.setText(f"Gesamtexport:\n{Path(path).name}")
-            self._feedback("Export erstellt")
-            QMessageBox.information(self, "PDF", "PDF wurde erstellt.")
+            self._confirm("Export erstellt")
 
     def mark_status(self, status: str) -> None:
         if self.current_report is None:
@@ -708,9 +891,25 @@ class MainWindow(QMainWindow):
             self.profiles.save(self.profile)
             self.company_card.value.setText(self.profile.company_name)
             self.field_card.value.setText(self.profile.internship_field)
-            self.company_footer.setText(f"{self.profile.company_name}\nPraxisstelle")
+            self.company_footer.setText(self.profile.company_name)
             self.refresh_list(self.current_report.id if self.current_report else None)
             self._confirm("Einstellungen gespeichert")
+
+    def edit_report_details(self) -> None:
+        if self.current_report is None:
+            return
+        report = self.read_report()
+        dialog = ReportDetailsDialog(report, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        updated = dialog.apply_to(report)
+        if not self.validate_report(updated):
+            return
+        report_id = self.reports.save(updated)
+        self.current_report = self.reports.get(report_id)
+        self.refresh_list(report_id)
+        self.show_report(self.current_report)
+        self._confirm("Berichtsdaten gespeichert")
 
     def update_summary(self) -> None:
         total = sum(row.entry().hours for row in self.day_rows)
@@ -722,8 +921,29 @@ class MainWindow(QMainWindow):
         )
 
     def _feedback(self, message: str) -> None:
-        self.statusBar().showMessage(message, 3500)
+        self.toast.setText(message)
+        self.toast.adjustSize()
+        margin = 24
+        x = self.width() - self.toast.width() - margin
+        y = 88
+        self.toast.move(max(margin, x), y)
+        self.toast.show()
+        self.toast.raise_()
+        self._animate_toast(0.0, 1.0, 140)
+        QTimer.singleShot(1900, lambda: self._animate_toast(1.0, 0.0, 260, hide=True))
 
     def _confirm(self, message: str) -> None:
         self._feedback(message)
-        QMessageBox.information(self, "Bestätigung", message)
+
+    def _animate_toast(self, start: float, end: float, duration: int, hide: bool = False) -> None:
+        self.toast_animation.stop()
+        self.toast_animation.setDuration(duration)
+        self.toast_animation.setStartValue(start)
+        self.toast_animation.setEndValue(end)
+        if self.toast_hide_connected:
+            self.toast_animation.finished.disconnect()
+            self.toast_hide_connected = False
+        if hide:
+            self.toast_animation.finished.connect(self.toast.hide)
+            self.toast_hide_connected = True
+        self.toast_animation.start()

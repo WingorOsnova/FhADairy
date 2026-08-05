@@ -14,7 +14,7 @@ class Profile:
     company_name: str = "Garamantis GmbH"
     company_address: str = "EUREF-Campus 7, 10829 Berlin"
     internship_field: str = "Softwareentwicklung / Informationstechnik"
-    contract_start: str = "2026-08-01"
+    contract_start: str = "2026-08-04"
     contract_end: str = "2027-07-31"
     default_location: str = "Berlin"
     id: int | None = None
