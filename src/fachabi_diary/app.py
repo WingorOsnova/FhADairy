@@ -56,6 +56,43 @@ QLineEdit, QTextEdit, QDateEdit, QDoubleSpinBox, QSpinBox {
   padding: 6px;
   selection-background-color: #0071e3;
 }
+QDateEdit {
+  padding-right: 8px;
+}
+QDateEdit::drop-down {
+  width: 0;
+  border: none;
+}
+QDateEdit::down-arrow {
+  width: 0;
+  height: 0;
+  image: none;
+}
+QCheckBox#dayCheck {
+  background: #ffffff;
+  border: 1px solid #d9dde7;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #344054;
+}
+QCheckBox#dayCheck:hover {
+  background: #f8fbff;
+  border-color: #bcd4ff;
+}
+QCheckBox#dayCheck:checked {
+  background: #eef5ff;
+  border-color: #99c7ff;
+  color: #075bd8;
+  font-weight: 650;
+}
+QCheckBox#dayCheck::indicator {
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  image: none;
+}
 QTextEdit {
   padding: 8px;
 }
@@ -330,6 +367,18 @@ QLabel#emptyTitle {
 QLabel#emptyText {
   color: #667085;
   font-size: 15px;
+}
+QLabel#exportResultIcon {
+  background: #eef5ff;
+  border: 1px solid #d8e9ff;
+  border-radius: 12px;
+}
+QLabel#exportPathLabel {
+  background: #f8fafc;
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  color: #475467;
+  padding: 10px 12px;
 }
 QLabel#dialogTitle {
   font-size: 24px;

@@ -42,4 +42,8 @@ def format_activity_bullets(entries: list[DailyEntry], general_notes: str = "") 
 
 
 def has_exportable_activity(report: WeeklyReport) -> bool:
-    return any(entry.activity_text.strip() for entry in report.entries)
+    return any(
+        entry.activity_text.strip()
+        and entry.activity_text.strip().casefold() != "wochenende"
+        for entry in report.entries
+    )

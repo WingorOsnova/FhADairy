@@ -5,6 +5,26 @@ from datetime import date
 
 
 STATUSES = ("Entwurf", "Bereit", "Gedruckt", "Unterschrieben")
+DEFAULT_WORKING_DAYS = "0,1,2,3,4"
+
+
+def parse_working_days(value: str) -> set[int]:
+    days: set[int] = set()
+    for raw_part in value.split(","):
+        part = raw_part.strip()
+        if not part.isdigit():
+            continue
+        day = int(part)
+        if 0 <= day <= 6:
+            days.add(day)
+    return days or {0, 1, 2, 3, 4}
+
+
+def serialize_working_days(days: set[int]) -> str:
+    valid_days = sorted(day for day in days if 0 <= day <= 6)
+    if not valid_days:
+        valid_days = [0, 1, 2, 3, 4]
+    return ",".join(str(day) for day in valid_days)
 
 
 @dataclass
@@ -17,7 +37,15 @@ class Profile:
     contract_start: str = "2026-08-04"
     contract_end: str = "2027-07-31"
     default_location: str = "Berlin"
+    working_days: str = DEFAULT_WORKING_DAYS
     id: int | None = None
+
+    @property
+    def working_day_indexes(self) -> set[int]:
+        return parse_working_days(self.working_days)
+
+    def is_working_day(self, weekday_index: int) -> bool:
+        return weekday_index in self.working_day_indexes
 
 
 @dataclass

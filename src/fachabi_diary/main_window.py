@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import sys
 import textwrap
 from datetime import date, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QDate, QPropertyAnimation, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QCursor
+from PySide6.QtCore import QEasingCurve, QDate, QProcess, QPropertyAnimation, QSize, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDateEdit,
     QDialog,
     QFileDialog,
@@ -33,10 +35,11 @@ from PySide6.QtWidgets import (
 
 from .design import SIDEBAR_WIDTH, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH
 from .icons import blue_icon, lucide_icon
-from .models import DailyEntry, Profile, STATUSES, WeeklyReport
+from .models import DailyEntry, Profile, STATUSES, WeeklyReport, serialize_working_days
 from .repositories import ProfileRepository, WeeklyReportRepository
 from .services.pdf_exporter import PdfExportError, PdfExporter
-from .services.report_formatter import format_date, format_hours, has_exportable_activity
+from .services.report_formatter import GERMAN_WEEKDAYS, format_date, format_hours, has_exportable_activity
+from .services.text_assistant import LocalTextAssistant
 
 
 def _monday_for(value: date) -> date:
@@ -65,6 +68,18 @@ def _activity_preview(text: str, line_width: int = 72) -> str:
             )
         )
     return "\n".join(lines)
+
+
+def _open_local_path(path: Path) -> bool:
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
+def _reveal_local_path(path: Path) -> bool:
+    if sys.platform == "darwin":
+        return QProcess.startDetached("open", ["-R", str(path)])
+    if sys.platform.startswith("win"):
+        return QProcess.startDetached("explorer", ["/select,", str(path)])
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
 
 class ProfileDialog(QDialog):
@@ -127,7 +142,8 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Einstellungen")
         self._profile = profile
-        self.setMinimumWidth(680)
+        self.setMinimumSize(820, 620)
+        self.resize(860, 650)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(26, 24, 26, 24)
         layout.setSpacing(18)
@@ -138,9 +154,13 @@ class SettingsDialog(QDialog):
 
         profile_panel = QFrame()
         profile_panel.setObjectName("panel")
+        profile_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         form = QFormLayout(profile_panel)
         form.setContentsMargins(18, 18, 18, 18)
-        form.setSpacing(12)
+        form.setHorizontalSpacing(22)
+        form.setVerticalSpacing(16)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.surname = QLineEdit(profile.surname)
         self.first_name = QLineEdit(profile.first_name)
         self.company_name = QLineEdit(profile.company_name)
@@ -151,6 +171,18 @@ class SettingsDialog(QDialog):
         self.contract_end = QDateEdit(
             QDate.fromString(profile.contract_end, "yyyy-MM-dd"))
         self.default_location = QLineEdit(profile.default_location)
+        for widget in (
+            self.surname,
+            self.first_name,
+            self.company_name,
+            self.company_address,
+            self.internship_field,
+            self.contract_start,
+            self.contract_end,
+            self.default_location,
+        ):
+            widget.setMinimumHeight(38)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for widget in (self.contract_start, self.contract_end):
             widget.setCalendarPopup(True)
             widget.setDisplayFormat("dd.MM.yyyy")
@@ -163,6 +195,33 @@ class SettingsDialog(QDialog):
         form.addRow("Vertrag bis", self.contract_end)
         form.addRow("Standard-Ort", self.default_location)
         layout.addWidget(profile_panel)
+
+        working_panel = QFrame()
+        working_panel.setObjectName("panel")
+        working_layout = QVBoxLayout(working_panel)
+        working_layout.setContentsMargins(18, 16, 18, 16)
+        working_layout.setSpacing(10)
+        working_title = QLabel("Arbeitswoche")
+        working_title.setObjectName("sectionLabel")
+        working_hint = QLabel("Markiere die Tage, an denen normalerweise gearbeitet wird.")
+        working_hint.setObjectName("mutedLabel")
+        working_hint.setWordWrap(True)
+        checks = QHBoxLayout()
+        checks.setSpacing(10)
+        self.working_day_checks: list[QCheckBox] = []
+        working_days = profile.working_day_indexes
+        for index, name in enumerate(GERMAN_WEEKDAYS):
+            check = QCheckBox(name)
+            check.setObjectName("dayCheck")
+            check.setChecked(index in working_days)
+            check.setMinimumHeight(36)
+            check.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self.working_day_checks.append(check)
+            checks.addWidget(check, 1)
+        working_layout.addWidget(working_title)
+        working_layout.addWidget(working_hint)
+        working_layout.addLayout(checks)
+        layout.addWidget(working_panel)
 
         info_panel = QFrame()
         info_panel.setObjectName("panel")
@@ -204,7 +263,70 @@ class SettingsDialog(QDialog):
             contract_start=self.contract_start.date().toString("yyyy-MM-dd"),
             contract_end=self.contract_end.date().toString("yyyy-MM-dd"),
             default_location=self.default_location.text().strip() or "Berlin",
+            working_days=serialize_working_days(
+                {index for index, check in enumerate(self.working_day_checks) if check.isChecked()}
+            ),
         )
+
+
+class ExportResultDialog(QDialog):
+    def __init__(self, output_path: Path, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.output_path = output_path
+        self.setWindowTitle("PDF erstellt")
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 22)
+        layout.setSpacing(16)
+
+        header = QHBoxLayout()
+        icon = QLabel()
+        icon.setObjectName("exportResultIcon")
+        icon.setPixmap(blue_icon("file-text", 28).pixmap(28, 28))
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setFixedSize(48, 48)
+        title_box = QVBoxLayout()
+        title_box.setSpacing(3)
+        title = QLabel("PDF erstellt")
+        title.setObjectName("dialogTitle")
+        subtitle = QLabel(output_path.name)
+        subtitle.setObjectName("mutedLabel")
+        subtitle.setWordWrap(True)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header.addWidget(icon)
+        header.addLayout(title_box, 1)
+        layout.addLayout(header)
+
+        path_label = QLabel(str(output_path))
+        path_label.setObjectName("exportPathLabel")
+        path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        path_label.setWordWrap(True)
+        layout.addWidget(path_label)
+
+        buttons = QHBoxLayout()
+        close = QPushButton("Schließen")
+        reveal = QPushButton("Im Finder anzeigen" if sys.platform == "darwin" else "Im Ordner anzeigen")
+        reveal.setIcon(lucide_icon("folder-open"))
+        open_pdf = QPushButton("Öffnen")
+        open_pdf.setObjectName("primaryButton")
+        open_pdf.setIcon(lucide_icon("external-link", "#FFFFFF"))
+        close.clicked.connect(self.reject)
+        reveal.clicked.connect(self.reveal_file)
+        open_pdf.clicked.connect(self.open_file)
+        buttons.addStretch()
+        buttons.addWidget(close)
+        buttons.addWidget(reveal)
+        buttons.addWidget(open_pdf)
+        layout.addLayout(buttons)
+
+    def open_file(self) -> None:
+        if not _open_local_path(self.output_path):
+            QMessageBox.warning(self, "PDF", "Die PDF-Datei konnte nicht geöffnet werden.")
+
+    def reveal_file(self) -> None:
+        if not _reveal_local_path(self.output_path):
+            QMessageBox.warning(self, "PDF", "Der Speicherort konnte nicht geöffnet werden.")
 
 
 class ReportDetailsDialog(QDialog):
@@ -520,6 +642,8 @@ class MainWindow(QMainWindow):
         self.reports = reports
         self.template_path = template_path
         self.exporter = PdfExporter(template_path)
+        self.text_assistant = LocalTextAssistant()
+        self.last_export_path: Path | None = None
         self.current_report: WeeklyReport | None = None
         self.day_rows: list[DayRow] = []
         self.toast = QLabel(self)
@@ -785,14 +909,15 @@ class MainWindow(QMainWindow):
         text.setWordWrap(True)
         bubble_layout.addWidget(text)
 
-        for label, icon_name in (
-            ("Tagesnotiz verbessern", "pencil"),
-            ("Woche zusammenfassen", "list"),
-            ("Formeller Text", "file-text"),
+        for label, icon_name, callback in (
+            ("Tagesnotiz verbessern", "pencil", self.improve_selected_day_note),
+            ("Woche zusammenfassen", "list", self.summarize_week_note),
+            ("Formeller Text", "file-text", self.formalize_week_text),
         ):
             button = QPushButton(label)
+            button.setObjectName("aiActionButton")
             button.setIcon(blue_icon(icon_name))
-            button.setEnabled(False)
+            button.clicked.connect(callback)
             bubble_layout.addWidget(button)
 
         self.ai_bubble_opacity = QGraphicsOpacityEffect(self.ai_bubble)
@@ -963,9 +1088,77 @@ class MainWindow(QMainWindow):
             self.profile.contract_start, report_number)
         report = WeeklyReport.new(
             report_number, start, self.profile.default_location)
+        self._apply_non_working_defaults(report)
         report_id = self.reports.save(report)
         self.refresh_list(report_id)
         self._confirm("Woche erstellt")
+
+    def _apply_non_working_defaults(self, report: WeeklyReport) -> bool:
+        changed = False
+        for entry in report.entries:
+            weekday = date.fromisoformat(entry.entry_date).weekday()
+            if self.profile.is_working_day(weekday) or entry.activity_text.strip():
+                continue
+            entry.hours = 0
+            entry.activity_text = "Wochenende"
+            changed = True
+        return changed
+
+    def _first_activity_row(self) -> DayRow | None:
+        for row in self.day_rows:
+            text = row.entry().activity_text.strip()
+            if text and text.casefold() != "wochenende":
+                return row
+        return None
+
+    def improve_selected_day_note(self) -> None:
+        if self.current_report is None:
+            return
+        row = self._first_activity_row()
+        if row is None:
+            self._feedback("Keine Tagesnotiz")
+            return
+        entry = row.entry()
+        improved = self.text_assistant.improve_activity(entry.activity_text)
+        if not improved:
+            self._feedback("Keine Tagesnotiz")
+            return
+        row.set_entry(
+            DailyEntry(
+                entry_date=entry.entry_date,
+                hours=entry.hours,
+                activity_text=improved,
+                id=entry.id,
+                weekly_report_id=entry.weekly_report_id,
+            )
+        )
+        self.update_summary()
+        self._confirm("Tagesnotiz verbessert")
+
+    def summarize_week_note(self) -> None:
+        if self.current_report is None:
+            return
+        summary = self.text_assistant.summarize_week(self.read_report())
+        if not summary:
+            self._feedback("Keine Einträge")
+            return
+        self.notes.setPlainText(summary)
+        self._confirm("Wochennotiz erstellt")
+
+    def formalize_week_text(self) -> None:
+        if self.current_report is None:
+            return
+        formalized = self.text_assistant.formalize_report(self.read_report())
+        changed = False
+        for row, entry in zip(self.day_rows, formalized.entries):
+            if row.entry().activity_text != entry.activity_text:
+                changed = True
+            row.set_entry(entry)
+        if self.notes.toPlainText().strip() != formalized.general_notes.strip():
+            changed = True
+        self.notes.setPlainText(formalized.general_notes)
+        self.update_summary()
+        self._confirm("Text formeller" if changed else "Text geprüft")
 
     def fill_weekend_defaults(self) -> None:
         if self.current_report is None:
@@ -974,7 +1167,7 @@ class MainWindow(QMainWindow):
         for row in self.day_rows:
             entry = row.entry()
             weekday = date.fromisoformat(entry.entry_date).weekday()
-            if weekday < 5 or entry.activity_text.strip():
+            if self.profile.is_working_day(weekday) or entry.activity_text.strip():
                 continue
             row.set_entry(
                 DailyEntry(
@@ -1046,8 +1239,9 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            self.exporter.export_week(self.profile, report, Path(path))
-            self._confirm("PDF erstellt")
+            output_path = Path(path)
+            self.exporter.export_week(self.profile, report, output_path)
+            self._handle_export_success(output_path, "PDF erstellt")
         except PdfExportError as exc:
             self._feedback("PDF fehlgeschlagen")
             QMessageBox.critical(self, "PDF", str(exc))
@@ -1062,8 +1256,18 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self, "Alle Berichte speichern", "berichte.pdf", "PDF (*.pdf)")
         if path:
-            self.exporter.export_many(self.profile, reports, Path(path))
-            self._confirm("Export erstellt")
+            try:
+                output_path = Path(path)
+                self.exporter.export_many(self.profile, reports, output_path)
+                self._handle_export_success(output_path, "Export erstellt")
+            except PdfExportError as exc:
+                self._feedback("Export fehlgeschlagen")
+                QMessageBox.critical(self, "PDF", str(exc))
+
+    def _handle_export_success(self, output_path: Path, message: str) -> None:
+        self.last_export_path = output_path
+        self._confirm(message)
+        ExportResultDialog(output_path, self).exec()
 
     def mark_status(self, status: str) -> None:
         if self.current_report is None:

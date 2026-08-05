@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -31,7 +31,8 @@ def migrate(connection: sqlite3.Connection) -> None:
             internship_field TEXT NOT NULL,
             contract_start TEXT NOT NULL,
             contract_end TEXT NOT NULL,
-            default_location TEXT NOT NULL
+            default_location TEXT NOT NULL,
+            working_days TEXT NOT NULL DEFAULT '0,1,2,3,4'
         );
 
         CREATE TABLE IF NOT EXISTS weekly_reports (
@@ -56,7 +57,17 @@ def migrate(connection: sqlite3.Connection) -> None:
         );
         """
     )
+    profile_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(profiles)").fetchall()
+    }
+    if "working_days" not in profile_columns:
+        connection.execute(
+            "ALTER TABLE profiles ADD COLUMN working_days TEXT NOT NULL DEFAULT '0,1,2,3,4'"
+        )
     row = connection.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
     if row is None:
         connection.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
+    elif int(row["version"]) < SCHEMA_VERSION:
+        connection.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
     connection.commit()

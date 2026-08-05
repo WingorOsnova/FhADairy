@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton, QSizePolicy
 
 from fachabi_diary.db import connect
-from fachabi_diary.main_window import MainWindow, ReportListItem
+from fachabi_diary.main_window import ExportResultDialog, MainWindow, ReportListItem, SettingsDialog
 from fachabi_diary.models import DailyEntry, Profile, WeeklyReport
 from fachabi_diary.repositories import ProfileRepository, WeeklyReportRepository
 
@@ -52,6 +52,45 @@ def test_weekend_defaults_keep_existing_weekend_work(qt_app, tmp_path) -> None:
     assert window.day_rows[5].entry().hours == 2
     assert window.day_rows[6].entry().activity_text == "Wochenende"
     assert window.day_rows[6].entry().hours == 0
+
+
+def test_new_week_prefills_non_working_days_from_profile(qt_app, tmp_path) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile(contract_start="2026-08-04", working_days="0,1,2,3,4,5")
+    profiles.save(profile)
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+
+    window.new_week()
+
+    saved = reports.list()[0]
+    assert saved.entries[5].activity_text == ""
+    assert saved.entries[6].activity_text == "Wochenende"
+
+
+def test_settings_dialog_saves_working_days(qt_app) -> None:
+    dialog = SettingsDialog(Profile(working_days="0,2,4"), Path("assets/formblatt9.pdf"))
+
+    assert dialog.minimumWidth() >= 820
+    assert dialog.surname.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert all(
+        check.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+        for check in dialog.working_day_checks
+    )
+    assert [check.isChecked() for check in dialog.working_day_checks] == [
+        True,
+        False,
+        True,
+        False,
+        True,
+        False,
+        False,
+    ]
+    dialog.working_day_checks[1].setChecked(True)
+    dialog.working_day_checks[4].setChecked(False)
+
+    assert dialog.profile().working_days == "0,1,2"
 
 
 def test_summary_period_and_action_bar_stay_compact(qt_app, tmp_path) -> None:
@@ -121,6 +160,18 @@ def test_ai_helper_updates_current_week_text(qt_app, tmp_path) -> None:
 
     assert window.day_rows[0].entry().activity_text == "Repository geklont und UI getestet."
     assert "Montag: Repository geklont und UI getestet" in window.notes.toPlainText()
+
+
+def test_export_result_dialog_shows_file_actions(qt_app, tmp_path) -> None:
+    output = tmp_path / "bericht-1.pdf"
+    dialog = ExportResultDialog(output)
+
+    button_texts = {button.text() for button in dialog.findChildren(QPushButton)}
+
+    assert dialog.output_path == output
+    assert "Öffnen" in button_texts
+    assert "Schließen" in button_texts
+    assert any("anzeigen" in text for text in button_texts)
 
 
 def test_qt_app_fixture_smoke(qt_app) -> None:

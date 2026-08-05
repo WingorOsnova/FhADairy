@@ -18,8 +18,8 @@ class ProfileRepository:
             """
             INSERT INTO profiles
             (id, surname, first_name, company_name, company_address, internship_field,
-             contract_start, contract_end, default_location)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+             contract_start, contract_end, default_location, working_days)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               surname=excluded.surname,
               first_name=excluded.first_name,
@@ -28,7 +28,8 @@ class ProfileRepository:
               internship_field=excluded.internship_field,
               contract_start=excluded.contract_start,
               contract_end=excluded.contract_end,
-              default_location=excluded.default_location
+              default_location=excluded.default_location,
+              working_days=excluded.working_days
             """,
             (
                 profile.surname,
@@ -39,6 +40,7 @@ class ProfileRepository:
                 profile.contract_start,
                 profile.contract_end,
                 profile.default_location,
+                profile.working_days,
             ),
         )
         self.connection.commit()
