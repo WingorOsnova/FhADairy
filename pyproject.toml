@@ -15,7 +15,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.2"]
+dev = [
+  "pytest>=8.2",
+  "pyinstaller>=6.10",
+]
 
 [project.scripts]
 fachabi-diary = "fachabi_diary.__main__:main"

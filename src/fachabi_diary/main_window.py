@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import textwrap
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QDate, QProcess, QPropertyAnimation, QSize, QTimer, Qt, QUrl, Signal
@@ -70,6 +70,16 @@ def _activity_preview(text: str, line_width: int = 72) -> str:
     return "\n".join(lines)
 
 
+def _format_exported_at(value: str) -> str:
+    if not value.strip():
+        return "Noch nicht erstellt"
+    try:
+        exported_at = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    return exported_at.strftime("%d.%m.%Y, %H:%M")
+
+
 def _open_local_path(path: Path) -> bool:
     return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
@@ -82,15 +92,65 @@ def _reveal_local_path(path: Path) -> bool:
     return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
 
+def _empty_profile() -> Profile:
+    today = date.today()
+    return Profile(
+        surname="",
+        first_name="",
+        company_name="",
+        company_address="",
+        internship_field="",
+        contract_start=today.isoformat(),
+        contract_end=(today + timedelta(days=365)).isoformat(),
+        default_location="",
+    )
+
+
+def _profile_validation_error(profile: Profile) -> str | None:
+    required_fields = (
+        ("Nachname", profile.surname),
+        ("Vorname", profile.first_name),
+        ("Praxisstelle", profile.company_name),
+        ("Adresse", profile.company_address),
+        ("Fachrichtung", profile.internship_field),
+        ("Standard-Ort", profile.default_location),
+    )
+    missing = [label for label, value in required_fields if not value.strip()]
+    if missing:
+        return "Bitte ausfüllen: " + ", ".join(missing) + "."
+    try:
+        start = date.fromisoformat(profile.contract_start)
+        end = date.fromisoformat(profile.contract_end)
+    except ValueError:
+        return "Bitte gültige Vertragsdaten eintragen."
+    if end < start:
+        return "Das Vertragsende darf nicht vor dem Vertragsbeginn liegen."
+    return None
+
+
 class ProfileDialog(QDialog):
     def __init__(self, profile: Profile | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Profil einrichten")
-        self._profile = profile or Profile()
-        self.setMinimumWidth(520)
-        layout = QFormLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
+        self._profile = profile or _empty_profile()
+        self.setMinimumSize(760, 620)
+        self.resize(800, 640)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(26, 24, 26, 24)
+        layout.setSpacing(18)
+
+        heading = QLabel("Profil einrichten")
+        heading.setObjectName("dialogTitle")
+        layout.addWidget(heading)
+
+        profile_panel = QFrame()
+        profile_panel.setObjectName("panel")
+        form = QFormLayout(profile_panel)
+        form.setContentsMargins(18, 18, 18, 18)
+        form.setHorizontalSpacing(22)
+        form.setVerticalSpacing(16)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.surname = QLineEdit(self._profile.surname)
         self.first_name = QLineEdit(self._profile.first_name)
         self.company_name = QLineEdit(self._profile.company_name)
@@ -101,17 +161,64 @@ class ProfileDialog(QDialog):
         self.contract_end = QDateEdit(QDate.fromString(
             self._profile.contract_end, "yyyy-MM-dd"))
         self.default_location = QLineEdit(self._profile.default_location)
+        placeholders = (
+            (self.surname, "Nachname"),
+            (self.first_name, "Vorname"),
+            (self.company_name, "Praxisstelle"),
+            (self.company_address, "Adresse der Praxisstelle"),
+            (self.internship_field, "z. B. Softwareentwicklung / IT"),
+            (self.default_location, "z. B. Berlin"),
+        )
+        for widget, placeholder in placeholders:
+            widget.setPlaceholderText(placeholder)
+        for widget in (
+            self.surname,
+            self.first_name,
+            self.company_name,
+            self.company_address,
+            self.internship_field,
+            self.contract_start,
+            self.contract_end,
+            self.default_location,
+        ):
+            widget.setMinimumHeight(38)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for widget in (self.contract_start, self.contract_end):
             widget.setCalendarPopup(True)
             widget.setDisplayFormat("dd.MM.yyyy")
-        layout.addRow("Nachname", self.surname)
-        layout.addRow("Vorname", self.first_name)
-        layout.addRow("Praxisstelle", self.company_name)
-        layout.addRow("Adresse", self.company_address)
-        layout.addRow("Bereich", self.internship_field)
-        layout.addRow("Vertrag von", self.contract_start)
-        layout.addRow("Vertrag bis", self.contract_end)
-        layout.addRow("Standard-Ort", self.default_location)
+        form.addRow("Nachname", self.surname)
+        form.addRow("Vorname", self.first_name)
+        form.addRow("Praxisstelle", self.company_name)
+        form.addRow("Adresse", self.company_address)
+        form.addRow("Fachrichtung", self.internship_field)
+        form.addRow("Vertrag von", self.contract_start)
+        form.addRow("Vertrag bis", self.contract_end)
+        form.addRow("Standard-Ort", self.default_location)
+        layout.addWidget(profile_panel)
+
+        working_panel = QFrame()
+        working_panel.setObjectName("panel")
+        working_layout = QVBoxLayout(working_panel)
+        working_layout.setContentsMargins(18, 16, 18, 16)
+        working_layout.setSpacing(10)
+        working_title = QLabel("Arbeitswoche")
+        working_title.setObjectName("sectionLabel")
+        checks = QHBoxLayout()
+        checks.setSpacing(10)
+        self.working_day_checks: list[QCheckBox] = []
+        working_days = self._profile.working_day_indexes
+        for index, name in enumerate(GERMAN_WEEKDAYS):
+            check = QCheckBox(name)
+            check.setObjectName("dayCheck")
+            check.setChecked(index in working_days)
+            check.setMinimumHeight(36)
+            check.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self.working_day_checks.append(check)
+            checks.addWidget(check, 1)
+        working_layout.addWidget(working_title)
+        working_layout.addLayout(checks)
+        layout.addWidget(working_panel)
+
         buttons = QHBoxLayout()
         save = QPushButton("Speichern")
         save.setObjectName("primaryButton")
@@ -121,7 +228,7 @@ class ProfileDialog(QDialog):
         buttons.addStretch()
         buttons.addWidget(cancel)
         buttons.addWidget(save)
-        layout.addRow(buttons)
+        layout.addLayout(buttons)
 
     def profile(self) -> Profile:
         return Profile(
@@ -133,8 +240,18 @@ class ProfileDialog(QDialog):
             internship_field=self.internship_field.text().strip(),
             contract_start=self.contract_start.date().toString("yyyy-MM-dd"),
             contract_end=self.contract_end.date().toString("yyyy-MM-dd"),
-            default_location=self.default_location.text().strip() or "Berlin",
+            default_location=self.default_location.text().strip(),
+            working_days=serialize_working_days(
+                {index for index, check in enumerate(self.working_day_checks) if check.isChecked()}
+            ),
         )
+
+    def accept(self) -> None:
+        error = _profile_validation_error(self.profile())
+        if error:
+            QMessageBox.warning(self, "Profil", error)
+            return
+        super().accept()
 
 
 class SettingsDialog(QDialog):
@@ -262,11 +379,18 @@ class SettingsDialog(QDialog):
             internship_field=self.internship_field.text().strip(),
             contract_start=self.contract_start.date().toString("yyyy-MM-dd"),
             contract_end=self.contract_end.date().toString("yyyy-MM-dd"),
-            default_location=self.default_location.text().strip() or "Berlin",
+            default_location=self.default_location.text().strip(),
             working_days=serialize_working_days(
                 {index for index, check in enumerate(self.working_day_checks) if check.isChecked()}
             ),
         )
+
+    def accept(self) -> None:
+        error = _profile_validation_error(self.profile())
+        if error:
+            QMessageBox.warning(self, "Einstellungen", error)
+            return
+        super().accept()
 
 
 class ExportResultDialog(QDialog):
@@ -548,6 +672,8 @@ class DayEntryDialog(QDialog):
 
 
 class DayRow(QFrame):
+    changed = Signal()
+
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("dayRow")
@@ -605,9 +731,8 @@ class DayRow(QFrame):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._entry = dialog.entry()
             self.refresh()
+            self.changed.emit()
             window = self.window()
-            if hasattr(window, "update_summary"):
-                window.update_summary()
             if hasattr(window, "_feedback"):
                 window._feedback("Tagesnotiz übernommen")
 
@@ -646,6 +771,12 @@ class MainWindow(QMainWindow):
         self.last_export_path: Path | None = None
         self.current_report: WeeklyReport | None = None
         self.day_rows: list[DayRow] = []
+        self._loading_report = False
+        self._report_dirty = False
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.setSingleShot(True)
+        self.autosave_timer.setInterval(900)
+        self.autosave_timer.timeout.connect(self._autosave_current)
         self.toast = QLabel(self)
         self.toast.setObjectName("toast")
         self.toast_opacity = QGraphicsOpacityEffect(self.toast)
@@ -841,6 +972,46 @@ class MainWindow(QMainWindow):
         cards.addWidget(edit_details, 0, Qt.AlignmentFlag.AlignBottom)
         layout.addLayout(cards)
 
+        self.pdf_panel = QFrame()
+        self.pdf_panel.setObjectName("pdfStatusPanel")
+        pdf_layout = QHBoxLayout(self.pdf_panel)
+        pdf_layout.setContentsMargins(18, 14, 18, 14)
+        pdf_layout.setSpacing(14)
+        pdf_icon = QLabel()
+        pdf_icon.setObjectName("pdfStatusIcon")
+        pdf_icon.setPixmap(blue_icon("file-pdf", 22).pixmap(22, 22))
+        pdf_text = QVBoxLayout()
+        pdf_text.setSpacing(3)
+        self.pdf_status_title = QLabel("Letzter Export")
+        self.pdf_status_title.setObjectName("sectionLabel")
+        self.pdf_status_file = QLabel("Noch kein PDF erstellt")
+        self.pdf_status_file.setObjectName("pdfStatusFile")
+        self.pdf_status_file.setWordWrap(True)
+        self.pdf_status_meta = QLabel("PDF erstellen, um Vorschau-Aktionen zu aktivieren.")
+        self.pdf_status_meta.setObjectName("mutedLabel")
+        self.pdf_status_meta.setWordWrap(True)
+        pdf_text.addWidget(self.pdf_status_title)
+        pdf_text.addWidget(self.pdf_status_file)
+        pdf_text.addWidget(self.pdf_status_meta)
+        self.open_pdf_button = QPushButton("Öffnen")
+        self.open_pdf_button.setIcon(lucide_icon("external-link"))
+        self.open_pdf_button.clicked.connect(self.open_last_pdf)
+        self.reveal_pdf_button = QPushButton("Im Finder")
+        self.reveal_pdf_button.setIcon(lucide_icon("folder-open"))
+        self.reveal_pdf_button.clicked.connect(self.reveal_last_pdf)
+        self.recreate_pdf_button = QPushButton("Neu erstellen")
+        self.recreate_pdf_button.setObjectName("primaryButton")
+        self.recreate_pdf_button.setIcon(lucide_icon("file-pdf", "#FFFFFF"))
+        self.recreate_pdf_button.clicked.connect(self.export_current)
+        for button in (self.open_pdf_button, self.reveal_pdf_button, self.recreate_pdf_button):
+            button.setFixedHeight(38)
+        pdf_layout.addWidget(pdf_icon, 0, Qt.AlignmentFlag.AlignTop)
+        pdf_layout.addLayout(pdf_text, 1)
+        pdf_layout.addWidget(self.open_pdf_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        pdf_layout.addWidget(self.reveal_pdf_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        pdf_layout.addWidget(self.recreate_pdf_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.pdf_panel)
+
         self.number = QSpinBox()
         self.number.setRange(1, 999)
         self.week_start = QDateEdit()
@@ -850,9 +1021,12 @@ class MainWindow(QMainWindow):
             widget.setCalendarPopup(True)
             widget.setDisplayFormat("dd.MM.yyyy")
             widget.dateChanged.connect(self.update_summary)
+            widget.dateChanged.connect(self._mark_dirty)
         self.number.valueChanged.connect(self.update_summary)
+        self.number.valueChanged.connect(self._mark_dirty)
         self.location = QLineEdit()
         self.location.textChanged.connect(self.update_summary)
+        self.location.textChanged.connect(self._mark_dirty)
         self.status = QLabel("Entwurf")
         self.status.setObjectName("statusPill")
 
@@ -871,6 +1045,7 @@ class MainWindow(QMainWindow):
         label.setObjectName("sectionLabel")
         self.notes = QTextEdit()
         self.notes.setFixedHeight(78)
+        self.notes.textChanged.connect(self._mark_dirty)
         notes_layout.addWidget(label)
         notes_layout.addWidget(self.notes)
         layout.addWidget(notes_panel)
@@ -960,6 +1135,15 @@ class MainWindow(QMainWindow):
             button.setSizePolicy(QSizePolicy.Policy.Fixed,
                                  QSizePolicy.Policy.Fixed)
         self.more_menu = QMenu(self)
+        self.open_last_pdf_action = QAction("Letzten PDF öffnen", self)
+        self.open_last_pdf_action.setIcon(lucide_icon("external-link"))
+        self.open_last_pdf_action.triggered.connect(self.open_last_pdf)
+        self.reveal_last_pdf_action = QAction(
+            "Im Finder anzeigen" if sys.platform == "darwin" else "Im Ordner anzeigen",
+            self,
+        )
+        self.reveal_last_pdf_action.setIcon(lucide_icon("folder-open"))
+        self.reveal_last_pdf_action.triggered.connect(self.reveal_last_pdf)
         printed_action = QAction("Gedruckt markieren", self)
         printed_action.setIcon(lucide_icon("printer"))
         printed_action.triggered.connect(lambda: self.mark_status("Gedruckt"))
@@ -970,6 +1154,9 @@ class MainWindow(QMainWindow):
         weekend_action = QAction("Wochenende eintragen", self)
         weekend_action.setIcon(lucide_icon("calendar"))
         weekend_action.triggered.connect(self.fill_weekend_defaults)
+        self.more_menu.addAction(self.open_last_pdf_action)
+        self.more_menu.addAction(self.reveal_last_pdf_action)
+        self.more_menu.addSeparator()
         self.more_menu.addAction(printed_action)
         self.more_menu.addAction(signed_action)
         self.more_menu.addAction(weekend_action)
@@ -1024,6 +1211,7 @@ class MainWindow(QMainWindow):
     def _show_empty_state(self) -> None:
         self.editor_stack.setCurrentWidget(self.empty_state)
         self.action_bar.hide()
+        self._update_last_pdf_actions()
         if hasattr(self, "ai_button"):
             self.ai_bubble.hide()
             self.ai_button.hide()
@@ -1038,25 +1226,42 @@ class MainWindow(QMainWindow):
         return f"Bericht Nr. {report.report_number}\n{format_date(report.week_start)} - {format_date(report.week_end)}\n{report.status}"
 
     def load_report_by_id(self, report_id: int) -> None:
+        current_id = self.current_report.id if self.current_report else None
+        if current_id == report_id:
+            self._set_active_report_item(report_id)
+            return
+        if not self._save_pending_changes(blocking=True):
+            if current_id is not None:
+                self._set_active_report_item(current_id)
+            return
         self.current_report = self.reports.get(report_id)
         self.show_report(self.current_report)
+        self._set_active_report_item(report_id)
+
+    def _set_active_report_item(self, report_id: int) -> None:
         for index in range(self.report_list_layout.count()):
             widget = self.report_list_layout.itemAt(index).widget()
             if isinstance(widget, ReportListItem):
                 widget.set_active(widget.report.id == report_id)
 
     def show_report(self, report: WeeklyReport) -> None:
-        self.number.setValue(report.report_number)
-        self.week_start.setDate(QDate.fromString(
-            report.week_start, "yyyy-MM-dd"))
-        self.week_end.setDate(QDate.fromString(report.week_end, "yyyy-MM-dd"))
-        self.report_date.setDate(QDate.fromString(
-            report.report_date, "yyyy-MM-dd"))
-        self.location.setText(report.location)
-        self.notes.setPlainText(report.general_notes)
-        self.status.setText(report.status)
-        self._set_day_entries(report)
-        self.update_summary()
+        self._loading_report = True
+        try:
+            self.number.setValue(report.report_number)
+            self.week_start.setDate(QDate.fromString(
+                report.week_start, "yyyy-MM-dd"))
+            self.week_end.setDate(QDate.fromString(report.week_end, "yyyy-MM-dd"))
+            self.report_date.setDate(QDate.fromString(
+                report.report_date, "yyyy-MM-dd"))
+            self.location.setText(report.location)
+            self.notes.setPlainText(report.general_notes)
+            self.status.setText(report.status)
+            self._set_day_entries(report)
+            self.update_summary()
+            self._update_last_pdf_actions()
+        finally:
+            self._loading_report = False
+        self._set_clean()
 
     def _set_day_entries(self, report: WeeklyReport) -> None:
         while self.days_layout.count():
@@ -1070,6 +1275,7 @@ class MainWindow(QMainWindow):
         for entry in entries[:7]:
             row = DayRow()
             row.set_entry(entry)
+            row.changed.connect(self._handle_day_row_changed)
             self.days_layout.addWidget(row)
             self.day_rows.append(row)
         self.days_layout.addStretch()
@@ -1083,6 +1289,8 @@ class MainWindow(QMainWindow):
         ]
 
     def new_week(self) -> None:
+        if not self._save_pending_changes(blocking=True):
+            return
         report_number = self.reports.next_number()
         start = _week_start_for_report(
             self.profile.contract_start, report_number)
@@ -1132,7 +1340,7 @@ class MainWindow(QMainWindow):
                 weekly_report_id=entry.weekly_report_id,
             )
         )
-        self.update_summary()
+        self._handle_day_row_changed()
         self._confirm("Tagesnotiz verbessert")
 
     def summarize_week_note(self) -> None:
@@ -1143,6 +1351,7 @@ class MainWindow(QMainWindow):
             self._feedback("Keine Einträge")
             return
         self.notes.setPlainText(summary)
+        self._mark_dirty()
         self._confirm("Wochennotiz erstellt")
 
     def formalize_week_text(self) -> None:
@@ -1157,7 +1366,10 @@ class MainWindow(QMainWindow):
         if self.notes.toPlainText().strip() != formalized.general_notes.strip():
             changed = True
         self.notes.setPlainText(formalized.general_notes)
-        self.update_summary()
+        if changed:
+            self._handle_day_row_changed()
+        else:
+            self.update_summary()
         self._confirm("Text formeller" if changed else "Text geprüft")
 
     def fill_weekend_defaults(self) -> None:
@@ -1179,7 +1391,10 @@ class MainWindow(QMainWindow):
                 )
             )
             changed = True
-        self.update_summary()
+        if changed:
+            self._handle_day_row_changed()
+        else:
+            self.update_summary()
         self._confirm(
             "Wochenende eingetragen" if changed else "Wochenende bereits gesetzt")
 
@@ -1194,6 +1409,8 @@ class MainWindow(QMainWindow):
             location=self.location.text().strip() or self.profile.default_location,
             general_notes=self.notes.toPlainText().strip(),
             status=self.status.text() if self.status.text() in STATUSES else "Entwurf",
+            last_pdf_path=self.current_report.last_pdf_path if self.current_report else "",
+            last_pdf_exported_at=self.current_report.last_pdf_exported_at if self.current_report else "",
             entries=entries,
         )
 
@@ -1213,6 +1430,7 @@ class MainWindow(QMainWindow):
     def save_current(self, notify: bool = True) -> bool:
         if self.current_report is None:
             return False
+        self.autosave_timer.stop()
         try:
             report = self.read_report()
             if not self.validate_report(report):
@@ -1220,12 +1438,55 @@ class MainWindow(QMainWindow):
             report_id = self.reports.save(report)
             self.current_report = self.reports.get(report_id)
         except Exception as exc:
+            self._report_dirty = True
             self._feedback("Speichern fehlgeschlagen")
             QMessageBox.critical(self, "Fehler", str(exc))
             return False
+        self._set_clean()
         self.refresh_list(report_id)
         if notify:
             self._confirm("Gespeichert")
+        return True
+
+    def _persist_current_report_state(self) -> int | None:
+        if self.current_report is None:
+            return None
+        report = self.read_report()
+        report_id = self.reports.save(report)
+        self.current_report = self.reports.get(report_id)
+        return report_id
+
+    def _handle_day_row_changed(self) -> None:
+        self.update_summary()
+        self._mark_dirty()
+
+    def _mark_dirty(self, *args) -> None:
+        if self._loading_report or self.current_report is None:
+            return
+        self._report_dirty = True
+        self.autosave_timer.start()
+
+    def _set_clean(self) -> None:
+        self._report_dirty = False
+        self.autosave_timer.stop()
+
+    def _autosave_current(self) -> None:
+        self._save_pending_changes(blocking=False)
+
+    def _save_pending_changes(self, blocking: bool = False) -> bool:
+        if self.current_report is None or not self._report_dirty:
+            return True
+        self.autosave_timer.stop()
+        try:
+            self._persist_current_report_state()
+        except Exception as exc:
+            self._report_dirty = True
+            if blocking:
+                QMessageBox.critical(self, "Speichern", str(exc))
+            else:
+                self._feedback("Autosave fehlgeschlagen")
+            return False
+        self._set_clean()
         return True
 
     def export_current(self) -> None:
@@ -1241,12 +1502,23 @@ class MainWindow(QMainWindow):
         try:
             output_path = Path(path)
             self.exporter.export_week(self.profile, report, output_path)
+            self.reports.set_export_result(
+                report.id,
+                str(output_path),
+                self._status_after_export(report.status),
+                datetime.now().isoformat(timespec="seconds"),
+            )
+            self.current_report = self.reports.get(report.id)
+            self.show_report(self.current_report)
+            self.refresh_list(report.id)
             self._handle_export_success(output_path, "PDF erstellt")
         except PdfExportError as exc:
             self._feedback("PDF fehlgeschlagen")
             QMessageBox.critical(self, "PDF", str(exc))
 
     def export_all(self) -> None:
+        if not self._save_pending_changes(blocking=True):
+            return
         reports = [report for report in self.reports.list(
         ) if has_exportable_activity(report)]
         if not reports:
@@ -1266,11 +1538,74 @@ class MainWindow(QMainWindow):
 
     def _handle_export_success(self, output_path: Path, message: str) -> None:
         self.last_export_path = output_path
+        self._update_last_pdf_actions()
         self._confirm(message)
         ExportResultDialog(output_path, self).exec()
 
+    def _status_after_export(self, status: str) -> str:
+        return "Bereit" if status == "Entwurf" else status
+
+    def _last_pdf_path(self) -> Path | None:
+        if self.current_report is None or not self.current_report.last_pdf_path.strip():
+            return None
+        return Path(self.current_report.last_pdf_path)
+
+    def _update_last_pdf_actions(self) -> None:
+        if not hasattr(self, "open_last_pdf_action"):
+            return
+        path = self._last_pdf_path()
+        has_path = path is not None
+        file_exists = bool(path and path.exists())
+        self.open_last_pdf_action.setVisible(has_path)
+        self.reveal_last_pdf_action.setVisible(has_path)
+        self.open_last_pdf_action.setEnabled(file_exists)
+        self.reveal_last_pdf_action.setEnabled(file_exists)
+        self._update_pdf_status_panel()
+
+    def _update_pdf_status_panel(self) -> None:
+        if not hasattr(self, "pdf_status_file"):
+            return
+        path = self._last_pdf_path()
+        if self.current_report is None or path is None:
+            self.pdf_status_file.setText("Noch kein PDF erstellt")
+            self.pdf_status_meta.setText("PDF erstellen, um Vorschau-Aktionen zu aktivieren.")
+            self.open_pdf_button.setEnabled(False)
+            self.reveal_pdf_button.setEnabled(False)
+            return
+        file_exists = path.exists()
+        self.pdf_status_file.setText(path.name)
+        exported_at = _format_exported_at(self.current_report.last_pdf_exported_at)
+        state = "bereit" if file_exists else "Datei nicht gefunden"
+        self.pdf_status_meta.setText(f"{exported_at} · {state} · {self.current_report.status}")
+        self.open_pdf_button.setEnabled(file_exists)
+        self.reveal_pdf_button.setEnabled(file_exists)
+
+    def open_last_pdf(self) -> None:
+        path = self._last_pdf_path()
+        if path is None:
+            self._feedback("Kein PDF")
+            return
+        if not path.exists():
+            self._feedback("PDF nicht gefunden")
+            return
+        if not _open_local_path(path):
+            QMessageBox.warning(self, "PDF", "Die PDF-Datei konnte nicht geöffnet werden.")
+
+    def reveal_last_pdf(self) -> None:
+        path = self._last_pdf_path()
+        if path is None:
+            self._feedback("Kein PDF")
+            return
+        if not path.exists():
+            self._feedback("PDF nicht gefunden")
+            return
+        if not _reveal_local_path(path):
+            QMessageBox.warning(self, "PDF", "Der Speicherort konnte nicht geöffnet werden.")
+
     def mark_status(self, status: str) -> None:
         if self.current_report is None:
+            return
+        if not self._save_pending_changes(blocking=True):
             return
         self.reports.set_status(self.current_report.id, status)
         self.current_report = self.reports.get(self.current_report.id)
@@ -1284,6 +1619,7 @@ class MainWindow(QMainWindow):
         result = QMessageBox.question(
             self, "Löschen", "Diesen Bericht wirklich löschen?")
         if result == QMessageBox.StandardButton.Yes:
+            self._set_clean()
             self.reports.delete(self.current_report.id)
             self.current_report = None
             self.refresh_list()
@@ -1292,11 +1628,20 @@ class MainWindow(QMainWindow):
     def edit_profile(self) -> None:
         dialog = SettingsDialog(self.profile, self.template_path, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.profile = dialog.profile()
-            self.profiles.save(self.profile)
-            self.company_footer.setText(self.profile.company_name)
-            self.refresh_list(
-                self.current_report.id if self.current_report else None)
+            selected_id = self.current_report.id if self.current_report else None
+            try:
+                self.autosave_timer.stop()
+                selected_id = self._persist_current_report_state() or selected_id
+                self.profile = dialog.profile()
+                self.profiles.save(self.profile)
+                self.company_footer.setText(self.profile.company_name)
+                self._set_clean()
+            except Exception as exc:
+                self._report_dirty = True
+                self._feedback("Einstellungen fehlgeschlagen")
+                QMessageBox.critical(self, "Fehler", str(exc))
+                return
+            self.refresh_list(selected_id)
             self._confirm("Einstellungen gespeichert")
 
     def edit_report_details(self) -> None:
@@ -1311,6 +1656,7 @@ class MainWindow(QMainWindow):
             return
         report_id = self.reports.save(updated)
         self.current_report = self.reports.get(report_id)
+        self._set_clean()
         self.refresh_list(report_id)
         self.show_report(self.current_report)
         self._confirm("Berichtsdaten gespeichert")
@@ -1402,3 +1748,19 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._position_overlays()
+
+    def closeEvent(self, event) -> None:
+        if self._save_pending_changes(blocking=True):
+            super().closeEvent(event)
+            return
+        result = QMessageBox.question(
+            self,
+            "Schließen",
+            "Änderungen konnten nicht automatisch gespeichert werden. Trotzdem schließen?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result == QMessageBox.StandardButton.Yes:
+            super().closeEvent(event)
+        else:
+            event.ignore()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -44,6 +44,8 @@ def migrate(connection: sqlite3.Connection) -> None:
             location TEXT NOT NULL,
             general_notes TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL,
+            last_pdf_path TEXT NOT NULL DEFAULT '',
+            last_pdf_exported_at TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -64,6 +66,18 @@ def migrate(connection: sqlite3.Connection) -> None:
     if "working_days" not in profile_columns:
         connection.execute(
             "ALTER TABLE profiles ADD COLUMN working_days TEXT NOT NULL DEFAULT '0,1,2,3,4'"
+        )
+    report_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(weekly_reports)").fetchall()
+    }
+    if "last_pdf_path" not in report_columns:
+        connection.execute(
+            "ALTER TABLE weekly_reports ADD COLUMN last_pdf_path TEXT NOT NULL DEFAULT ''"
+        )
+    if "last_pdf_exported_at" not in report_columns:
+        connection.execute(
+            "ALTER TABLE weekly_reports ADD COLUMN last_pdf_exported_at TEXT NOT NULL DEFAULT ''"
         )
     row = connection.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
     if row is None:

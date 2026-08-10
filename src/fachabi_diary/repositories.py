@@ -69,6 +69,8 @@ class WeeklyReportRepository:
             location=row["location"],
             general_notes=row["general_notes"],
             status=row["status"],
+            last_pdf_path=row["last_pdf_path"],
+            last_pdf_exported_at=row["last_pdf_exported_at"],
         )
         entry_rows = self.connection.execute(
             "SELECT * FROM daily_entries WHERE weekly_report_id = ? ORDER BY entry_date, id",
@@ -95,8 +97,9 @@ class WeeklyReportRepository:
             cursor = self.connection.execute(
                 """
                 INSERT INTO weekly_reports
-                (report_number, week_start, week_end, report_date, location, general_notes, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (report_number, week_start, week_end, report_date, location, general_notes, status,
+                 last_pdf_path, last_pdf_exported_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     report.report_number,
@@ -106,6 +109,8 @@ class WeeklyReportRepository:
                     report.location,
                     report.general_notes,
                     report.status,
+                    report.last_pdf_path,
+                    report.last_pdf_exported_at,
                 ),
             )
             report.id = int(cursor.lastrowid)
@@ -114,7 +119,8 @@ class WeeklyReportRepository:
                 """
                 UPDATE weekly_reports
                 SET report_number=?, week_start=?, week_end=?, report_date=?, location=?,
-                    general_notes=?, status=?, updated_at=CURRENT_TIMESTAMP
+                    general_notes=?, status=?, last_pdf_path=?, last_pdf_exported_at=?,
+                    updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
                 """,
                 (
@@ -125,6 +131,8 @@ class WeeklyReportRepository:
                     report.location,
                     report.general_notes,
                     report.status,
+                    report.last_pdf_path,
+                    report.last_pdf_exported_at,
                     report.id,
                 ),
             )
@@ -139,6 +147,28 @@ class WeeklyReportRepository:
             )
         self.connection.commit()
         return report.id
+
+    def set_export_path(self, report_id: int, path: str, exported_at: str = "") -> None:
+        self.connection.execute(
+            """
+            UPDATE weekly_reports
+            SET last_pdf_path=?, last_pdf_exported_at=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (path, exported_at, report_id),
+        )
+        self.connection.commit()
+
+    def set_export_result(self, report_id: int, path: str, status: str, exported_at: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE weekly_reports
+            SET last_pdf_path=?, last_pdf_exported_at=?, status=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (path, exported_at, status, report_id),
+        )
+        self.connection.commit()
 
     def delete(self, report_id: int) -> None:
         self.connection.execute("DELETE FROM weekly_reports WHERE id=?", (report_id,))

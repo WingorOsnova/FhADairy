@@ -11,6 +11,14 @@ from .main_window import MainWindow, ProfileDialog
 from .repositories import ProfileRepository, WeeklyReportRepository
 
 
+def resource_path(relative_path: str) -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    else:
+        base = Path(__file__).resolve().parents[2]
+    return base / relative_path
+
+
 def data_dir() -> Path:
     base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
     return Path(base or Path.home() / ".fachabi-diary")
@@ -33,7 +41,7 @@ def run() -> int:
     elif profile.contract_start == "2026-08-01":
         profile.contract_start = "2026-08-04"
         profiles.save(profile)
-    window = MainWindow(profile, profiles, reports, Path.cwd() / "assets" / "formblatt9.pdf")
+    window = MainWindow(profile, profiles, reports, resource_path("assets/formblatt9.pdf"))
     window.resize(1320, 820)
     window.show()
     return app.exec()
@@ -277,7 +285,7 @@ QFrame#actionBar {
   background: #ffffff;
   border-top: 1px solid #dde2ec;
 }
-QFrame#summaryCard, QFrame#panel, QFrame#aiBubble {
+QFrame#summaryCard, QFrame#panel, QFrame#aiBubble, QFrame#pdfStatusPanel {
   background: #ffffff;
   border: 1px solid #dde2ec;
   border-radius: 10px;
@@ -290,6 +298,19 @@ QFrame#aiBubble {
   background: #f4f8ff;
   border-color: #bcd4ff;
   border-radius: 12px;
+}
+QFrame#pdfStatusPanel {
+  background: #fbfdff;
+}
+QLabel#pdfStatusIcon {
+  background: #eef5ff;
+  border: 1px solid #d8e9ff;
+  border-radius: 8px;
+  padding: 8px;
+}
+QLabel#pdfStatusFile {
+  color: #111827;
+  font-weight: 700;
 }
 QFrame#dayRow {
   background: #ffffff;

@@ -31,10 +31,9 @@ class PdfExporter:
         writer = PdfWriter()
         for report in reports:
             template_reader = PdfReader(str(self.template_path))
-            page = template_reader.pages[0]
+            page = writer.add_page(template_reader.pages[0])
             overlay_reader = PdfReader(self._overlay(profile, report))
             page.merge_page(overlay_reader.pages[0])
-            writer.add_page(page)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("wb") as handle:
             writer.write(handle)

@@ -66,6 +66,8 @@ class WeeklyReport:
     location: str = "Berlin"
     general_notes: str = ""
     status: str = "Entwurf"
+    last_pdf_path: str = ""
+    last_pdf_exported_at: str = ""
     id: int | None = None
     entries: list[DailyEntry] = field(default_factory=list)
 

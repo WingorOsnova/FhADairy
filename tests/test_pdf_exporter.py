@@ -1,3 +1,5 @@
+import warnings
+
 from pypdf import PdfReader
 
 from fachabi_diary.models import DailyEntry, Profile, WeeklyReport
@@ -55,3 +57,22 @@ def test_combined_pdf_keeps_reports_on_separate_pages(tmp_path) -> None:
     assert "Eintrag nur zweite Woche" not in first_page
     assert "Eintrag nur zweite Woche" in second_page
     assert "Eintrag nur erste Woche" not in second_page
+
+
+def test_pdf_export_does_not_warn_about_unassigned_pages(tmp_path) -> None:
+    output = tmp_path / "bericht.pdf"
+    report = WeeklyReport(
+        report_number=1,
+        week_start="2026-08-03",
+        week_end="2026-08-09",
+        report_date="2026-08-07",
+        location="Berlin",
+        entries=[DailyEntry("2026-08-03", 8, "PDF-Warnung vermeiden.")],
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        PdfExporter(__import__("pathlib").Path("assets/formblatt9.pdf")).export_week(Profile(), report, output)
+
+    messages = [str(warning.message) for warning in caught]
+    assert not any("replace_contents" in message for message in messages)

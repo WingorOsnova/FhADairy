@@ -5,7 +5,9 @@
 ## Возможности MVP
 
 - профиль практики с данными Lysenko / Kostiantyn / Garamantis GmbH;
+- первичная настройка профиля с Arbeitswoche и проверкой обязательных полей;
 - создание, редактирование и удаление недельных отчётов;
+- автосохранение открытого отчёта после изменений и перед переключением недель;
 - статусы `Entwurf`, `Bereit`, `Gedruckt`, `Unterschrieben`;
 - 7 дневных строк с датой, часами и текстом деятельности;
 - автоматическая сумма часов за неделю;
@@ -14,6 +16,10 @@
 - экспорт одного отчёта в официальный PDF;
 - экспорт всех заполненных отчётов в один PDF;
 - диалог результата экспорта с открытием PDF и показом файла в Finder;
+- последний PDF-путь сохраняется у недельного отчёта;
+- в отчёте показывается последний PDF-Export с датой, именем файла и быстрыми действиями;
+- сохранённый PDF можно открыть или показать в Finder через меню `Weitere`;
+- успешный PDF-Export setzt einen Entwurf automatisch auf `Bereit`;
 - подписи и печать в PDF остаются пустыми.
 
 ## Установка на macOS
@@ -55,6 +61,17 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```bash
 pytest
 ```
+
+## Сборка macOS `.app`
+
+```bash
+cd /Users/lysenko-kostiantyn/IT/FhADairy
+venv/bin/python -m pip install -e ".[dev]"
+bash scripts/build_macos_app.sh
+open "dist/Fachabi Diary.app"
+```
+
+Скрипт встраивает `assets/formblatt9.pdf` внутрь `.app`, поэтому запуск не зависит от текущей папки терминала.
 
 ## PDF-шаблон
 

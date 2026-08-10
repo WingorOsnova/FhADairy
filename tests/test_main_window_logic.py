@@ -1,9 +1,17 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QPushButton, QSizePolicy
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QPushButton, QSizePolicy
 
+import fachabi_diary.main_window as main_window_module
 from fachabi_diary.db import connect
-from fachabi_diary.main_window import ExportResultDialog, MainWindow, ReportListItem, SettingsDialog
+from fachabi_diary.main_window import (
+    ExportResultDialog,
+    MainWindow,
+    ProfileDialog,
+    ReportListItem,
+    SettingsDialog,
+    _profile_validation_error,
+)
 from fachabi_diary.models import DailyEntry, Profile, WeeklyReport
 from fachabi_diary.repositories import ProfileRepository, WeeklyReportRepository
 
@@ -93,6 +101,45 @@ def test_settings_dialog_saves_working_days(qt_app) -> None:
     assert dialog.profile().working_days == "0,1,2"
 
 
+def test_profile_dialog_starts_empty_and_saves_working_days(qt_app) -> None:
+    dialog = ProfileDialog()
+
+    assert dialog.surname.text() == ""
+    assert dialog.first_name.text() == ""
+    assert [check.isChecked() for check in dialog.working_day_checks] == [
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]
+    dialog.surname.setText("Muster")
+    dialog.first_name.setText("Max")
+    dialog.company_name.setText("Praxis GmbH")
+    dialog.company_address.setText("Berlin")
+    dialog.internship_field.setText("Informationstechnik")
+    dialog.default_location.setText("Berlin")
+    dialog.working_day_checks[5].setChecked(True)
+
+    profile = dialog.profile()
+
+    assert profile.surname == "Muster"
+    assert profile.working_days == "0,1,2,3,4,5"
+    assert _profile_validation_error(profile) is None
+
+
+def test_profile_validation_requires_core_fields(qt_app) -> None:
+    dialog = ProfileDialog()
+
+    error = _profile_validation_error(dialog.profile())
+
+    assert error is not None
+    assert "Nachname" in error
+    assert "Praxisstelle" in error
+
+
 def test_summary_period_and_action_bar_stay_compact(qt_app, tmp_path) -> None:
     connection = connect(tmp_path / "app.sqlite3")
     profiles = ProfileRepository(connection)
@@ -113,6 +160,11 @@ def test_summary_period_and_action_bar_stay_compact(qt_app, tmp_path) -> None:
     menu_actions = [action.text() for action in window.more_menu.actions()]
     assert "Gedruckt markieren" in menu_actions
     assert "Unterschrieben markieren" in menu_actions
+    assert not window.open_last_pdf_action.isVisible()
+    assert not window.reveal_last_pdf_action.isVisible()
+    assert window.pdf_status_file.text() == "Noch kein PDF erstellt"
+    assert not window.open_pdf_button.isEnabled()
+    assert not window.reveal_pdf_button.isEnabled()
     expected_sizes = {
         "Speichern": (150, 42),
         "PDF erstellen": (150, 42),
@@ -174,6 +226,101 @@ def test_export_result_dialog_shows_file_actions(qt_app, tmp_path) -> None:
     assert any("anzeigen" in text for text in button_texts)
 
 
+def test_more_menu_shows_last_pdf_actions_for_exported_report(qt_app, tmp_path) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile()
+    profiles.save(profile)
+    output = tmp_path / "bericht-1.pdf"
+    output.write_bytes(b"%PDF-1.4\n")
+    report_id = reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            last_pdf_path=str(output),
+            last_pdf_exported_at="2026-08-10T12:05:00",
+        )
+    )
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+
+    window.refresh_list(report_id)
+
+    assert window.open_last_pdf_action.isVisible()
+    assert window.reveal_last_pdf_action.isVisible()
+    assert window._last_pdf_path() == output
+    assert window.pdf_status_file.text() == "bericht-1.pdf"
+    assert "10.08.2026, 12:05" in window.pdf_status_meta.text()
+    assert window.open_pdf_button.isEnabled()
+    assert window.reveal_pdf_button.isEnabled()
+
+
+def test_export_current_marks_draft_report_ready(qt_app, tmp_path, monkeypatch) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile()
+    profiles.save(profile)
+    report_id = reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            status="Entwurf",
+            entries=[DailyEntry("2026-08-03", 6, "Test exportieren.")],
+        )
+    )
+    output = tmp_path / "bericht-1.pdf"
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+    window.refresh_list(report_id)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args, **kwargs: (str(output), "PDF (*.pdf)"))
+    monkeypatch.setattr(ExportResultDialog, "exec", lambda self: 0)
+
+    window.export_current()
+
+    saved = reports.get(report_id)
+    assert saved.status == "Bereit"
+    assert saved.last_pdf_path == str(output)
+    assert saved.last_pdf_exported_at
+    assert window.current_report.status == "Bereit"
+    assert window.open_last_pdf_action.isVisible()
+    assert window.pdf_status_file.text() == "bericht-1.pdf"
+    assert window.open_pdf_button.isEnabled()
+
+
+def test_export_current_keeps_printed_status(qt_app, tmp_path, monkeypatch) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile()
+    profiles.save(profile)
+    report_id = reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            status="Gedruckt",
+            entries=[DailyEntry("2026-08-03", 6, "Test exportieren.")],
+        )
+    )
+    output = tmp_path / "bericht-gedruckt.pdf"
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+    window.refresh_list(report_id)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args, **kwargs: (str(output), "PDF (*.pdf)"))
+    monkeypatch.setattr(ExportResultDialog, "exec", lambda self: 0)
+
+    window.export_current()
+
+    assert reports.get(report_id).status == "Gedruckt"
+
+
 def test_qt_app_fixture_smoke(qt_app) -> None:
     assert QApplication.instance() is qt_app
 
@@ -197,3 +344,187 @@ def test_sidebar_active_state_moves_as_one(qt_app, tmp_path) -> None:
         if item.parent() is not None
     ]
     assert states == [(1, False, False, False), (2, True, True, True)]
+
+
+def test_settings_save_preserves_unsaved_current_report(qt_app, tmp_path, monkeypatch) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile()
+    profiles.save(profile)
+    report_id = reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            entries=[DailyEntry("2026-08-03", 0, "")],
+        )
+    )
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+    window.refresh_list(report_id)
+    entry = window.day_rows[0].entry()
+    window.day_rows[0].set_entry(
+        DailyEntry(
+            entry.entry_date,
+            6,
+            "Nicht gespeicherte Tätigkeit bleibt erhalten.",
+            id=entry.id,
+            weekly_report_id=entry.weekly_report_id,
+        )
+    )
+
+    class FakeSettingsDialog:
+        def __init__(self, profile: Profile, template_path: Path, parent=None) -> None:
+            self._profile = profile
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def profile(self) -> Profile:
+            return Profile(
+                id=self._profile.id,
+                surname=self._profile.surname,
+                first_name=self._profile.first_name,
+                company_name="Neue Praxisstelle GmbH",
+                company_address=self._profile.company_address,
+                internship_field=self._profile.internship_field,
+                contract_start=self._profile.contract_start,
+                contract_end=self._profile.contract_end,
+                default_location=self._profile.default_location,
+                working_days=self._profile.working_days,
+            )
+
+    monkeypatch.setattr(main_window_module, "SettingsDialog", FakeSettingsDialog)
+
+    window.edit_profile()
+
+    saved = reports.get(report_id)
+    assert saved.entries[0].activity_text == "Nicht gespeicherte Tätigkeit bleibt erhalten."
+    assert saved.entries[0].hours == 6
+    assert profiles.get().company_name == "Neue Praxisstelle GmbH"
+    assert window.day_rows[0].entry().activity_text == "Nicht gespeicherte Tätigkeit bleibt erhalten."
+
+
+def test_autosave_persists_dirty_report(qt_app, tmp_path) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile()
+    profiles.save(profile)
+    report_id = reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            entries=[DailyEntry("2026-08-03", 0, "")],
+        )
+    )
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+    window.refresh_list(report_id)
+    entry = window.day_rows[0].entry()
+    window.day_rows[0].set_entry(
+        DailyEntry(
+            entry.entry_date,
+            5,
+            "Autosave speichert diese Tätigkeit.",
+            id=entry.id,
+            weekly_report_id=entry.weekly_report_id,
+        )
+    )
+
+    window._handle_day_row_changed()
+    window._autosave_current()
+
+    saved = reports.get(report_id)
+    assert not window._report_dirty
+    assert saved.entries[0].hours == 5
+    assert saved.entries[0].activity_text == "Autosave speichert diese Tätigkeit."
+
+
+def test_switching_report_saves_pending_current_report(qt_app, tmp_path) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile()
+    profiles.save(profile)
+    first_id = reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            entries=[DailyEntry("2026-08-03", 0, "")],
+        )
+    )
+    second_id = reports.save(
+        WeeklyReport(
+            2,
+            "2026-08-10",
+            "2026-08-16",
+            "2026-08-14",
+            "Berlin",
+            entries=[DailyEntry("2026-08-10", 0, "")],
+        )
+    )
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+    window.refresh_list(first_id)
+    entry = window.day_rows[0].entry()
+    window.day_rows[0].set_entry(
+        DailyEntry(
+            entry.entry_date,
+            4,
+            "Vor dem Wechsel gespeichert.",
+            id=entry.id,
+            weekly_report_id=entry.weekly_report_id,
+        )
+    )
+    window._handle_day_row_changed()
+
+    window.load_report_by_id(second_id)
+
+    saved_first = reports.get(first_id)
+    assert saved_first.entries[0].activity_text == "Vor dem Wechsel gespeichert."
+    assert saved_first.entries[0].hours == 4
+    assert window.current_report.id == second_id
+
+
+def test_status_change_saves_pending_report_text(qt_app, tmp_path) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile()
+    profiles.save(profile)
+    report_id = reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            entries=[DailyEntry("2026-08-03", 0, "")],
+        )
+    )
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+    window.refresh_list(report_id)
+    entry = window.day_rows[0].entry()
+    window.day_rows[0].set_entry(
+        DailyEntry(
+            entry.entry_date,
+            6,
+            "Statuswechsel darf den Text nicht verlieren.",
+            id=entry.id,
+            weekly_report_id=entry.weekly_report_id,
+        )
+    )
+    window._handle_day_row_changed()
+
+    window.mark_status("Gedruckt")
+
+    saved = reports.get(report_id)
+    assert saved.status == "Gedruckt"
+    assert saved.entries[0].activity_text == "Statuswechsel darf den Text nicht verlieren."
