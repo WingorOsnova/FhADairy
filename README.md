@@ -73,6 +73,22 @@ open "dist/Fachabi Diary.app"
 
 Скрипт встраивает `assets/formblatt9.pdf` внутрь `.app`, поэтому запуск не зависит от текущей папки терминала.
 
+## Упаковка релиза для GitHub
+
+```bash
+bash scripts/build_macos_app.sh
+bash scripts/package_macos_release.sh
+```
+
+Готовые файлы появятся в `dist/release/`:
+
+```text
+Fachabi-Diary-0.1.0-macOS-arm64.zip
+Fachabi-Diary-0.1.0-macOS-arm64.dmg
+```
+
+Пока приложение не подписано Apple Developer ID, macOS может показывать предупреждение Gatekeeper при первом запуске.
+
 ## PDF-шаблон
 
 Официальный шаблон должен лежать здесь:
