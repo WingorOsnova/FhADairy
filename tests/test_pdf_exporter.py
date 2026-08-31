@@ -12,7 +12,7 @@ def test_pdf_export_creates_readable_file(tmp_path) -> None:
         report_number=1,
         week_start="2026-08-03",
         week_end="2026-08-09",
-        report_date="2026-08-07",
+        report_date="2026-08-03",
         location="Berlin",
         entries=[DailyEntry("2026-08-03", 8, "Projektstruktur kennengelernt.")],
     )
@@ -24,6 +24,8 @@ def test_pdf_export_creates_readable_file(tmp_path) -> None:
     assert len(reader.pages) == 1
     assert "Lysenko" in text
     assert "Projektstruktur kennengelernt" in text
+    assert "Berlin, 09.08.2026" in text
+    assert "Berlin, 03.08.2026" not in text
 
 
 def test_combined_pdf_keeps_reports_on_separate_pages(tmp_path) -> None:

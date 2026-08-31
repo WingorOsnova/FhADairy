@@ -1661,10 +1661,21 @@ class MainWindow(QMainWindow):
         self.show_report(self.current_report)
         self._confirm("Berichtsdaten gespeichert")
 
+    def _current_week_total_hours(self) -> float:
+        return sum(row.entry().hours for row in self.day_rows)
+
+    def _practice_total_hours(self, current_week_total: float) -> float:
+        total = self.reports.total_hours()
+        if self.current_report and self.current_report.id is not None:
+            total -= self.reports.report_total_hours(self.current_report.id)
+            total += current_week_total
+        return total
+
     def update_summary(self) -> None:
-        total = sum(row.entry().hours for row in self.day_rows)
-        self.total.setText(f"{format_hours(total)} Std.")
-        self.hours_card.value.setText(f"{format_hours(total)} Std.")
+        week_total = self._current_week_total_hours()
+        practice_total = self._practice_total_hours(week_total)
+        self.total.setText(f"{format_hours(week_total)} Std.")
+        self.hours_card.value.setText(f"{format_hours(practice_total)} Std.")
         self.number_card.value.setText(f"{self.number.value():02d}")
         self.period_card.value.setText(
             f"{self.week_start.date().toString('dd.MM.yyyy')} - {self.week_end.date().toString('dd.MM.yyyy')}"

@@ -48,7 +48,7 @@ class PdfExporter:
         self._draw(c, format_date(report.week_start), 184, 620)
         self._draw(c, format_date(report.week_end), 359, 620)
         self._draw_multiline(c, format_activity_bullets(report.entries, report.general_notes), 90, 589, 92, 27)
-        self._draw(c, f"{report.location}, {format_date(report.report_date)}", 90, 194, 42)
+        self._draw(c, f"{report.location}, {format_date(report.week_end)}", 90, 194, 42)
         c.save()
         buffer.seek(0)
         return buffer

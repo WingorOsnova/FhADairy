@@ -92,6 +92,23 @@ class WeeklyReportRepository:
         row = self.connection.execute("SELECT COALESCE(MAX(report_number), 0) + 1 AS n FROM weekly_reports").fetchone()
         return int(row["n"])
 
+    def total_hours(self) -> float:
+        row = self.connection.execute(
+            "SELECT COALESCE(SUM(hours), 0) AS total FROM daily_entries"
+        ).fetchone()
+        return float(row["total"])
+
+    def report_total_hours(self, report_id: int) -> float:
+        row = self.connection.execute(
+            """
+            SELECT COALESCE(SUM(hours), 0) AS total
+            FROM daily_entries
+            WHERE weekly_report_id = ?
+            """,
+            (report_id,),
+        ).fetchone()
+        return float(row["total"])
+
     def save(self, report: WeeklyReport) -> int:
         if report.id is None:
             cursor = self.connection.execute(

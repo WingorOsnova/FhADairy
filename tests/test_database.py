@@ -50,6 +50,35 @@ def test_delete_report_removes_entries(tmp_path) -> None:
     assert count == 0
 
 
+def test_total_hours_across_all_reports(tmp_path) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    reports = WeeklyReportRepository(connection)
+    reports.save(
+        WeeklyReport(
+            report_number=1,
+            week_start="2026-08-03",
+            week_end="2026-08-09",
+            report_date="2026-08-07",
+            entries=[
+                DailyEntry("2026-08-03", 4, "Projektstart."),
+                DailyEntry("2026-08-04", 3.5, "Entwicklung."),
+            ],
+        )
+    )
+    second_id = reports.save(
+        WeeklyReport(
+            report_number=2,
+            week_start="2026-08-10",
+            week_end="2026-08-16",
+            report_date="2026-08-14",
+            entries=[DailyEntry("2026-08-10", 6, "Umsetzung.")],
+        )
+    )
+
+    assert reports.total_hours() == 13.5
+    assert reports.report_total_hours(second_id) == 6
+
+
 def test_profile_working_days_persistence(tmp_path) -> None:
     connection = connect(tmp_path / "app.sqlite3")
     profiles = ProfileRepository(connection)

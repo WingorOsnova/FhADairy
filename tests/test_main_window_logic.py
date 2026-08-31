@@ -176,6 +176,55 @@ def test_summary_period_and_action_bar_stay_compact(qt_app, tmp_path) -> None:
             assert (button.width(), button.height()) == expected_sizes[button.text()]
 
 
+def test_summary_card_shows_total_practice_hours(qt_app, tmp_path) -> None:
+    connection = connect(tmp_path / "app.sqlite3")
+    profiles = ProfileRepository(connection)
+    reports = WeeklyReportRepository(connection)
+    profile = Profile(contract_start="2026-08-04")
+    profiles.save(profile)
+    reports.save(
+        WeeklyReport(
+            1,
+            "2026-08-03",
+            "2026-08-09",
+            "2026-08-07",
+            "Berlin",
+            entries=[DailyEntry("2026-08-03", 4, "Erste Woche.")],
+        )
+    )
+    second_id = reports.save(
+        WeeklyReport(
+            2,
+            "2026-08-10",
+            "2026-08-16",
+            "2026-08-14",
+            "Berlin",
+            entries=[DailyEntry("2026-08-10", 2, "Zweite Woche.")],
+        )
+    )
+    window = MainWindow(profile, profiles, reports, Path("assets/formblatt9.pdf"))
+
+    window.refresh_list(second_id)
+
+    assert window.total.text() == "2 Std."
+    assert window.hours_card.value.text() == "6 Std."
+
+    entry = window.day_rows[0].entry()
+    window.day_rows[0].set_entry(
+        DailyEntry(
+            entry.entry_date,
+            5,
+            entry.activity_text,
+            id=entry.id,
+            weekly_report_id=entry.weekly_report_id,
+        )
+    )
+    window._handle_day_row_changed()
+
+    assert window.total.text() == "5 Std."
+    assert window.hours_card.value.text() == "9 Std."
+
+
 def test_empty_state_when_no_weekly_reports(qt_app, tmp_path) -> None:
     connection = connect(tmp_path / "app.sqlite3")
     profiles = ProfileRepository(connection)
